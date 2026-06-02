@@ -60,12 +60,12 @@ if [ $? -eq 0 ]; then
     echo -e "1) Port Default (5173)"
     echo -e "2) Masukkan Port Custom"
     echo -e "3) Cari Port Kosong Otomatis"
-    read -p "Masukkan pilihan (1/2/3): " port_option
+        read -p "Masukkan pilihan (1/2/3): " port_option < /dev/tty
 
     APP_PORT=5173
     case $port_option in
         2)
-            read -p "Masukkan nomor port yang diinginkan: " APP_PORT
+                read -p "Masukkan nomor port yang diinginkan: " APP_PORT < /dev/tty
             ;;
         3)
             echo -e "${YELLOW}Mencari port kosong mulai dari 5173...${NC}"
@@ -84,16 +84,8 @@ if [ $? -eq 0 ]; then
         echo -e "${YELLOW}Peringatan: Port $APP_PORT tampaknya sedang digunakan. Aplikasi mungkin gagal dijalankan jika ada konflik.${NC}"
     fi
 
-    echo -e "${GREEN}3.1 Konfigurasi Allowed Hosts...${NC}"
-    echo -e "Vite memerlukan izin eksplisit untuk host selain localhost."
-    read -p "Masukkan domain yang Anda gunakan (contoh: noc.hendrii.web.id) atau tekan Enter untuk default: " CUSTOM_HOST
-    if [ ! -z "$CUSTOM_HOST" ]; then
-        echo -e "Memperbarui vite.config.ts dengan host: $CUSTOM_HOST"
-        sed -i "s/allowedHosts: \['noc.hendrii.web.id'\]/allowedHosts: ['$CUSTOM_HOST']/" vite.config.ts
-    fi
-
     echo -e "${GREEN}4. Opsi PM2 (Process Manager)...${NC}"
-    read -p "Apakah ingin menggunakan PM2 agar aplikasi berjalan otomatis di background? (y/n): " use_pm2
+        read -p "Apakah ingin menggunakan PM2 agar aplikasi berjalan otomatis di background? (y/n): " use_pm2 < /dev/tty
 
     if [[ "$use_pm2" =~ ^[Yy]$ ]]; then
         if ! command -v pm2 &> /dev/null; then
