@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Manajemen Invoice NOC",
+  "description": "Aplikasi manajemen invoice pelanggan jasa monitoring NOC dengan sinkronisasi WhatsApp QR, QRIS statis, pengingat otomatis, dan laporan laba-rugi serta ekspor PDF/Excel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
