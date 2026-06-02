@@ -55,11 +55,68 @@ echo -e "${GREEN}2. Menginstal dependensi (npm install)...${NC}"
 npm install
 
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}3. Instalasi selesai!${NC}"
-    echo -e "${BLUE}==================================================${NC}"
-    echo -e "Untuk menjalankan aplikasi:"
-    echo -e "${GREEN}cd $DIR_NAME && npm run dev${NC}"
-    echo -e "${BLUE}==================================================${NC}"
+    echo -e "${GREEN}3. Konfigurasi Port Jaringan...${NC}"
+    echo -e "Pilih opsi port untuk menjalankan aplikasi:"
+    echo -e "1) Port Default (5173)"
+    echo -e "2) Masukkan Port Custom"
+    echo -e "3) Cari Port Kosong Otomatis"
+    read -p "Masukkan pilihan (1/2/3): " port_option
+
+    APP_PORT=5173
+    case $port_option in
+        2)
+            read -p "Masukkan nomor port yang diinginkan: " APP_PORT
+            ;;
+        3)
+            echo -e "${YELLOW}Mencari port kosong mulai dari 5173...${NC}"
+            while ! is_port_free $APP_PORT; do
+                APP_PORT=$((APP_PORT+1))
+            done
+            echo -e "${GREEN}Port ditemukan: $APP_PORT${NC}"
+            ;;
+        *)
+            APP_PORT=5173
+            ;;
+    esac
+
+    # Cek apakah port yang dipilih benar-benar tersedia
+    if ! is_port_free $APP_PORT; then
+        echo -e "${YELLOW}Peringatan: Port $APP_PORT tampaknya sedang digunakan. Aplikasi mungkin gagal dijalankan jika ada konflik.${NC}"
+    fi
+
+    echo -e "${GREEN}4. Opsi PM2 (Process Manager)...${NC}"
+    read -p "Apakah ingin menggunakan PM2 agar aplikasi berjalan otomatis di background? (y/n): " use_pm2
+
+    if [[ "$use_pm2" =~ ^[Yy]$ ]]; then
+        if ! command -v pm2 &> /dev/null; then
+            echo -e "${YELLOW}PM2 tidak ditemukan. Menginstal PM2 secara global...${NC}"
+            sudo npm install -g pm2
+        fi
+
+        # Hapus proses lama jika ada
+        pm2 delete noc-billing &> /dev/null
+        
+        # Jalankan dengan PM2
+        echo -e "${GREEN}Menjalankan aplikasi dengan PM2...${NC}"
+        pm2 start npm --name "noc-billing" -- run dev -- --port $APP_PORT --host
+        pm2 save
+        
+        echo -e "${GREEN}Instalasi selesai!${NC}"
+        echo -e "${BLUE}==================================================${NC}"
+        echo -e "Aplikasi berjalan di background dengan PM2."
+        echo -e "URL: ${GREEN}http://localhost:$APP_PORT${NC}"
+        echo -e "Gunakan '${YELLOW}pm2 status${NC}' untuk melihat status."
+        echo -e "Gunakan '${YELLOW}pm2 logs noc-billing${NC}' untuk melihat log."
+        echo -e "Gunakan '${RED}pm2 stop noc-billing${NC}' untuk menghentikan."
+        echo -e "${BLUE}==================================================${NC}"
+    else
+        echo -e "${GREEN}Instalasi selesai!${NC}"
+        echo -e "${BLUE}==================================================${NC}"
+        echo -e "Untuk menjalankan aplikasi secara manual:"
+        echo -e "${GREEN}cd $DIR_NAME && npm run dev -- --port $APP_PORT --host${NC}"
+        echo -e "Akses di: ${GREEN}http://localhost:$APP_PORT${NC}"
+        echo -e "${BLUE}==================================================${NC}"
+    fi
 else
     echo -e "${RED}Terjadi kesalahan saat menginstal dependensi.${NC}"
     exit 1
