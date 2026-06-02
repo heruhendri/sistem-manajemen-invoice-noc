@@ -33,6 +33,14 @@ Sistem Manajemen Invoice NOC adalah platform penagihan (billing) dan pemantauan 
 *   `src/utils/`: Utility untuk ekspor PDF, format mata uang, dan manajemen data.
 *   `src/mockData.ts`: Inisialisasi data awal untuk simulasi sistem.
 
+## ⚡ Instalasi Cepat (One-Liner)
+
+Bagi pengguna Linux, macOS, atau Windows (menggunakan Git Bash), Anda bisa menggunakan perintah `curl` berikut untuk melakukan instalasi otomatis:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/heruhendri/sistem-manajemen-invoice-noc/main/setup.sh | bash
+```
+
 ## ⚙️ Cara Instalasi & Menjalankan
 
 Pastikan Anda telah menginstal **Node.js** (versi 16 ke atas) dan **npm** di komputer Anda.
