@@ -84,6 +84,14 @@ if [ $? -eq 0 ]; then
         echo -e "${YELLOW}Peringatan: Port $APP_PORT tampaknya sedang digunakan. Aplikasi mungkin gagal dijalankan jika ada konflik.${NC}"
     fi
 
+    echo -e "${GREEN}3.1 Konfigurasi Allowed Hosts...${NC}"
+    echo -e "Vite memerlukan izin eksplisit untuk host selain localhost."
+    read -p "Masukkan domain yang Anda gunakan (contoh: noc.hendrii.web.id) atau tekan Enter untuk default: " CUSTOM_HOST
+    if [ ! -z "$CUSTOM_HOST" ]; then
+        echo -e "Memperbarui vite.config.ts dengan host: $CUSTOM_HOST"
+        sed -i "s/allowedHosts: \['noc.hendrii.web.id'\]/allowedHosts: ['$CUSTOM_HOST']/" vite.config.ts
+    fi
+
     echo -e "${GREEN}4. Opsi PM2 (Process Manager)...${NC}"
     read -p "Apakah ingin menggunakan PM2 agar aplikasi berjalan otomatis di background? (y/n): " use_pm2
 
