@@ -1,20 +1,49 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+<img width="1200" height="400" alt="GHBanner" src="https://socialify.git.ci/heruhendri/sistem-manajemen-invoice-noc/image?font=Inter&language=1&name=1&owner=1&pattern=Circuit%20Board&theme=Dark" />
+
+# Sistem Manajemen Invoice NOC Nusantara
+**Infrastruktur Penagihan & Monitoring SLA Berbasis MikroTik API**
+
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D16-green.svg)](https://nodejs.org)
+[![Vite](https://img.shields.io/badge/Vite-6.0-blue.svg)](https://vitejs.dev)
+[![License](https://img.shields.io/badge/license-MIT-important.svg)](LICENSE)
 </div>
 
-# Run and deploy your AI Studio app
+Sistem Manajemen Invoice NOC adalah platform manajemen biling proaktif untuk ISP, RTRW-Net, dan penyedia layanan jaringan. Terintegrasi dengan MikroTik API untuk monitoring trafik real-time, manajemen voucher hotspot, dan otomatisasi pengingat tagihan via WhatsApp/Telegram.
 
-This contains everything you need to run your app locally.
+## 🚀 Instalasi Cepat (Auto-Installer)
 
-View your app in AI Studio: https://ai.studio/apps/bb43cead-5455-4ca8-9c45-f796dd5a3420
+Gunakan perintah `curl` di bawah ini pada terminal Linux Anda untuk melakukan instalasi otomatis (Node.js & Git diperlukan):
 
-## Run Locally
+```bash
+curl -sSL https://raw.githubusercontent.com/heruhendri/sistem-manajemen-invoice-noc/main/setup.sh | bash
+```
 
-**Prerequisites:**  Node.js
+## 🛠 Fitur Utama
+- **Dashboard Billing:** Pantau status invoice (Paid, Unpaid, Overdue) secara real-time.
+- **MikroTik Integration:** Monitoring trafik, status PPPoE, dan Hotspot langsung dari dashboard.
+- **E-Catalog & Voucher:** Pembelian voucher hotspot instan dengan simulasi pembayaran QRIS.
+- **Gateway Notifikasi:** Pengiriman tagihan otomatis via WhatsApp Relay dan Telegram Bot.
+- **E-Invoice PDF:** Generate invoice profesional dengan QRIS statis otomatis.
 
+## 💻 Akses Dashboard
+Setelah instalasi selesai, aplikasi dapat diakses melalui:
+- **Lokal:** `http://localhost:5173`
+- **Publik:** Gunakan domain/IP server Anda (Contoh: `http://noc.hendrii.web.id`)
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 📋 Prasyarat Sistem
+- **Node.js:** Versi 16 atau lebih tinggi.
+- **Git:** Untuk manajemen source code.
+- **PM2 (Opsional):** Untuk menjalankan aplikasi secara permanen di background.
+
+## 📞 Kontak & Dukungan
+Jika Anda menemukan kendala atau memerlukan kustomisasi lebih lanjut, silakan hubungi tim pengembang:
+
+- **Developer:** Heru Hendri
+- **Repository:** GitHub heruhendri/sistem-manajemen-invoice-noc
+- **Support:** Melalui menu *Integration View* di dalam dashboard untuk pengaturan bot.
+
+---
+<div align="center">
+  <p>Dibuat dengan ❤️ untuk Komunitas Jaringan Indonesia</p>
+</div>

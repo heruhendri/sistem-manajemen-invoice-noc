@@ -107,13 +107,14 @@ if [ $? -eq 0 ]; then
         echo -e "URL: ${GREEN}http://localhost:$APP_PORT${NC}"
         echo -e "Gunakan '${YELLOW}pm2 status${NC}' untuk melihat status."
         echo -e "Gunakan '${YELLOW}pm2 logs noc-billing${NC}' untuk melihat log."
-        echo -e "Gunakan '${RED}pm2 stop noc-billing${NC}' untuk menghentikan."
+        echo -e "Gunakan '${RED}pm2 restart noc-billing${NC}' untuk memuat ulang."
         echo -e "${BLUE}==================================================${NC}"
     else
         echo -e "${GREEN}Instalasi selesai!${NC}"
         echo -e "${BLUE}==================================================${NC}"
         echo -e "Untuk menjalankan aplikasi secara manual:"
-        echo -e "${GREEN}cd $DIR_NAME && npm run dev -- --port $APP_PORT --host${NC}"
+        echo -e "${GREEN}cd $DIR_NAME${NC}"
+        echo -e "${GREEN}npm run dev -- --port $APP_PORT --host${NC}"
         echo -e "Akses di: ${GREEN}http://localhost:$APP_PORT${NC}"
         echo -e "${BLUE}==================================================${NC}"
     fi
