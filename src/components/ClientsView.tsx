@@ -30,7 +30,7 @@ interface ClientsViewProps {
   serviceCategories: ServiceCategory[];
   onAddClient: (client: Client) => void;
   onUpdateClient: (client: Client) => void;
-  onDeleteClient: (id: string) => void;
+  onDeleteClient: (idOrIds: string | string[]) => void;
   onAddCategory?: (category: ServiceCategory) => void;
   triggerToast?: (message: string, type?: "success" | "warning" | "error" | "info") => void;
 }
@@ -44,7 +44,7 @@ const SERVICE_PRICES: Record<ServiceType, number> = {
   "VPN IPSec Tunneling & Firewall": 2000000,
   "SD-WAN Dedicated Monitoring": 4500000,
   "Monitoring Node SNMP & Ping": 1500000,
-  "NOC & Cloud Managed Service": 8000000,
+  "NOC & Cloud Managed Service": 8000005,
 };
 
 export default function ClientsView({
@@ -69,6 +69,8 @@ export default function ClientsView({
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [selectedClientDetails, setSelectedClientDetails] = useState<Client | null>(null);
   const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
+  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [isBulkDeleteConfirm, setIsBulkDeleteConfirm] = useState(false);
 
   // Form states
   const [name, setName] = useState("");
@@ -713,25 +715,64 @@ export default function ClientsView({
       )}
 
       {/* Search Input Filter */}
-      <div className="bg-white dark:bg-[rgb(17,24,39)] p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center gap-2.5 col-span-12" id="search-filter-card">
-        <Search className="w-4 h-4 text-slate-400 shrink-0" />
-        <input 
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Cari pelanggan berdasarkan Nama, Instansi, Email, atau No Telepon..."
-          className="w-full text-xs bg-transparent border-0 focus:outline-none focus:ring-0 text-slate-850 dark:text-slate-200 font-sans"
-          id="search-client-input"
-        />
+      <div className="bg-white dark:bg-[rgb(17,24,39)] p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 col-span-12" id="search-filter-card">
+        <div className="flex items-center gap-2.5 flex-1">
+          <Search className="w-4 h-4 text-slate-400 shrink-0" />
+          <input 
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cari pelanggan berdasarkan Nama, Instansi, Email, atau No Telepon..."
+            className="w-full text-xs bg-transparent border-0 focus:outline-none focus:ring-0 text-slate-850 dark:text-slate-200 font-sans"
+            id="search-client-input"
+          />
+        </div>
+
+        {selectedClientIds.length > 0 && (
+          <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 px-3 py-1.5 rounded-xl animate-in fade-in duration-205">
+            <span className="text-[11px] font-bold text-rose-700 dark:text-rose-400">
+              Terpilih: <strong>{selectedClientIds.length}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteConfirm(true)}
+              className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10.5px] font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+              id="bulk-delete-clients-btn"
+            >
+              <Trash className="w-3 h-3" /> Hapus Massal
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedClientIds([])}
+              className="text-slate-400 hover:text-slate-650 text-[10.5px] font-semibold hover:underline bg-transparent border-0 cursor-pointer"
+            >
+              Batal
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Clients Table Card */}
-      <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden" id="clients-table-card">
+      <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden col-span-12" id="clients-table-card">
         <div className="overflow-x-auto" id="clients-table-scroll">
           <table className="w-full text-left border-collapse" id="clients-table">
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest" id="th-row">
-                <th className="py-3 px-6" id="th-code">ID Kode</th>
+                <th className="py-3 px-4 text-center w-12" id="th-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={filteredClients.length > 0 && selectedClientIds.length === filteredClients.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedClientIds(filteredClients.map(c => c.id));
+                      } else {
+                        setSelectedClientIds([]);
+                      }
+                    }}
+                    className="rounded border-slate-350 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer accent-blue-600"
+                  />
+                </th>
+                <th className="py-3 px-4" id="th-code">ID Kode</th>
                 <th className="py-3 px-6" id="th-customer">Pelanggan & Instansi</th>
                 <th className="py-3 px-5" id="th-type">Tingkatan SLA NOC</th>
                 <th className="py-3 px-5 text-right font-mono" id="th-subfee">Harga Berlangganan</th>
@@ -742,7 +783,7 @@ export default function ClientsView({
             <tbody className="divide-y divide-slate-100 text-xs text-slate-600" id="tb-body">
               {filteredClients.length === 0 ? (
                 <tr id="empty-row">
-                  <td colSpan={6} className="py-8 text-center text-slate-400" id="empty-td font-semibold">
+                  <td colSpan={7} className="py-8 text-center text-slate-400 font-semibold" id="empty-td-wrapper">
                     <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     Tidak ada pelanggan yang cocok dengan pencarian Anda.
                   </td>
@@ -750,7 +791,21 @@ export default function ClientsView({
               ) : (
                 filteredClients.map((client) => (
                   <tr className="hover:bg-slate-50/50 transition-colors" key={client.id} id={`row-cli-${client.id}`}>
-                    <td className="py-4 px-6 font-mono font-semibold text-[11px]" id={`td-id-${client.id}`}>
+                    <td className="py-4 px-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedClientIds.includes(client.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedClientIds(prev => [...prev, client.id]);
+                          } else {
+                            setSelectedClientIds(prev => prev.filter(id => id !== client.id));
+                          }
+                        }}
+                        className="rounded border-slate-350 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer accent-blue-600"
+                      />
+                    </td>
+                    <td className="py-4 px-4 font-mono font-semibold text-[11px]" id={`td-id-${client.id}`}>
                       {client.id}
                     </td>
                     <td className="py-4 px-6" id={`td-meta-${client.id}`}>
@@ -1165,6 +1220,7 @@ export default function ClientsView({
                   onClick={() => {
                     onDeleteClient(deletingClientId);
                     setDeletingClientId(null);
+                    setSelectedClientIds(prev => prev.filter(id => id !== deletingClientId));
                     notify("Informasi pelanggan berhasil dihapus dari sistem.", "success");
                   }}
                   className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-colors hover:scale-[1.02] active:scale-[0.98] transition-transform"
@@ -1176,6 +1232,47 @@ export default function ClientsView({
           </div>
         );
       })()}
+
+      {/* Bulk Delete Confirm Modal */}
+      {isBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150" id="bulk-delete-modal-overlay">
+          <div className="bg-white dark:bg-[#151e2e] w-full max-w-md p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl" id="bulk-delete-modal-box">
+            <div className="flex items-center gap-3 text-rose-600 mb-4" id="bulk-delete-modal-title">
+              <ShieldAlert className="w-6 h-6 shrink-0" />
+              <h3 className="text-sm font-bold uppercase tracking-wider font-sans">
+                Konfirmasi Hapus Massal Pelanggan
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-350 leading-relaxed mb-6" id="bulk-delete-modal-desc">
+              Apakah Anda yakin ingin menghapus sebanyak <strong className="text-rose-600 font-bold">{selectedClientIds.length}</strong> pelanggan yang dipilih secara massal?
+              <br />
+              Tindakan ini bersifat permanen dan akan menghapus seluruh data terpilih beserta sejarah penagihan terkait.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirm(false)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl cursor-pointer transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteClient(selectedClientIds);
+                  setSelectedClientIds([]);
+                  setIsBulkDeleteConfirm(false);
+                  notify("Seluruh pelanggan terpilih berhasil dihapus massal.", "success");
+                }}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-colors"
+                id="bulk-delete-clients-confirm-btn"
+              >
+                Ya, Hapus Massal Permanen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Inline Add Category Modal */}
       {isCategoryModalOpen && (

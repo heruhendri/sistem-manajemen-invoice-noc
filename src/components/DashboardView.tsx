@@ -30,6 +30,7 @@ interface DashboardViewProps {
 
 export default function DashboardView({ clients, invoices, bookkeeping, onNavigate }: DashboardViewProps) {
   const [selectedYear, setSelectedYear] = useState<string>("2026");
+  const [hoveredReportMonth, setHoveredReportMonth] = useState<string | null>(null);
 
   // Filter clients and invoices
   const activeClientsCount = useMemo(() => clients.filter(c => c.status === "Active").length, [clients]);
@@ -250,8 +251,8 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
       {/* Main Graph and Status Monitoring section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="dashboard-charts-layout">
         {/* Income Expense Chart Card */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs lg:col-span-2" id="chart-card">
-          <div className="flex justify-between items-center mb-4" id="chart-hdr">
+        <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs lg:col-span-2 space-y-3.5" id="chart-card">
+          <div className="flex justify-between items-center" id="chart-hdr">
             <div>
               <h2 className="text-sm font-bold text-slate-900 tracking-tight" id="chart-title">Grafik Perbandingan Laba Rugi Bulanan</h2>
               <span className="text-xs text-slate-400" id="chart-subtitle">Kas Masuk (Biru/Blue) vs Pengeluaran Server/Gaji (Slate)</span>
@@ -261,8 +262,36 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
             </div>
           </div>
 
+          {/* Dynamic Interactive HUD for details */}
+          {(() => {
+            const activeReport = profitLossReports.find(r => r.month === hoveredReportMonth);
+            return (
+              <div className="h-12 flex items-center justify-between bg-slate-950 text-white px-4 py-2.5 rounded-xl border border-slate-800 transition-all font-mono">
+                {activeReport ? (
+                  <div className="flex justify-between items-center w-full text-[11px] sm:text-xs">
+                    <span className="text-sky-400 font-extrabold">📍 {activeReport.monthName} :</span>
+                    <div className="flex gap-2 sm:gap-4 ml-2">
+                      <span className="text-emerald-400">Masuk: <strong className="font-bold">{formatIDR(activeReport.revenue)}</strong></span>
+                      <span className="text-slate-700">|</span>
+                      <span className="text-rose-400">Keluar: <strong className="font-bold">{formatIDR(activeReport.expenses)}</strong></span>
+                      <span className="text-slate-700">|</span>
+                      <span className={`font-bold ${activeReport.revenue >= activeReport.expenses ? "text-emerald-400" : "text-rose-450"}`}>
+                        Net: {formatIDR(activeReport.revenue - activeReport.expenses)}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-slate-400 italic text-[10.5px] font-sans flex items-center gap-1.5 w-full justify-center">
+                    <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
+                    Sorot kursor / hover di atas balok grafik untuk rincian keuangan kas masuk-keluar riil.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* SVG Custom Interactive Chart */}
-          <div className="w-full h-64 bg-slate-50/50 rounded-lg p-2 flex flex-col justify-between" id="chart-canvas-container">
+          <div className="w-full h-64 bg-slate-50/50 rounded-xl p-2 flex flex-col justify-between" id="chart-canvas-container">
             {/* SVG Elements */}
             <div className="flex-1 relative" id="chart-svg">
               <svg className="w-full h-full" viewBox="0 0 500 180" id="custom-bar-chart">
@@ -286,16 +315,34 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
                   const eY = 140 - eHeight;
 
                   return (
-                    <g key={item.month} id={`month-g-${item.month}`}>
+                    <g 
+                      key={item.month} 
+                      id={`month-g-${item.month}`}
+                      onMouseEnter={() => setHoveredReportMonth(item.month)}
+                      onMouseLeave={() => setHoveredReportMonth(null)}
+                      className="cursor-pointer transition-all duration-200"
+                    >
+                      {/* Highlight underlay */}
+                      {hoveredReportMonth === item.month && (
+                        <rect
+                          x={startX - 10}
+                          y="10"
+                          width="60"
+                          height="140"
+                          fill="rgba(37, 99, 235, 0.05)"
+                          rx="4"
+                        />
+                      )}
+                      
                       {/* Revenue Bar */}
                       <rect 
                         x={startX} 
                         y={rY} 
                         width="18" 
                         height={rHeight > 0 ? rHeight : 1} 
-                        fill="#2563eb" 
-                        rx="2"
-                        className="transition-all hover:opacity-85 cursor-pointer"
+                        fill={hoveredReportMonth === item.month ? "#3b82f6" : "#2563eb"} 
+                        rx="3"
+                        className="transition-all hover:brightness-110 cursor-pointer"
                       >
                         <title>{`Pendapatan ${item.monthName}: ${formatIDR(item.revenue)}`}</title>
                       </rect>
@@ -305,9 +352,9 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
                         y={eY} 
                         width="18" 
                         height={eHeight > 0 ? eHeight : 1} 
-                        fill="#64748b" 
-                        rx="2"
-                        className="transition-all hover:opacity-85 cursor-pointer"
+                        fill={hoveredReportMonth === item.month ? "#94a3b8" : "#64748b"} 
+                        rx="3"
+                        className="transition-all hover:brightness-110 cursor-pointer"
                       >
                         <title>{`Pengeluaran ${item.monthName}: ${formatIDR(item.expenses)}`}</title>
                       </rect>

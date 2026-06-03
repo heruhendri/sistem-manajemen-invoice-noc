@@ -19,7 +19,8 @@ import {
   Smartphone,
   ExternalLink,
   X,
-  FileText
+  FileText,
+  Trash2
 } from "lucide-react";
 
 interface InvoicesViewProps {
@@ -74,6 +75,9 @@ export default function InvoicesView({
 
   // Clipboard Copied states
   const [copiedInvoiceId, setCopiedInvoiceId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [isBulkDeleteConfirm, setIsBulkDeleteConfirm] = useState(false);
 
   // Bulk Invoice Generation and Admin Advisory States
   const [isBulkOpen, setIsBulkOpen] = useState(false);
@@ -482,36 +486,63 @@ export default function InvoicesView({
       )}
 
       {/* Filters and search area */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row gap-3 items-center justify-between" id="inv-table-filters">
-        <div className="w-full md:max-w-md flex items-center gap-2" id="search-bar">
-          <Search className="w-4 h-4 text-slate-400 shrink-0" />
-          <input 
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari invoice berdasarkan ID, Nama Klien, Perusahaan..."
-            className="w-full text-xs bg-transparent border-none focus:outline-none focus:ring-0 text-slate-800"
-            id="inp-search-inv"
-          />
+      <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex flex-col gap-3" id="inv-table-filters-container">
+        <div className="flex flex-col md:flex-row gap-3 items-center justify-between" id="inv-table-filters">
+          <div className="w-full md:max-w-md flex items-center gap-2" id="search-bar">
+            <Search className="w-4 h-4 text-slate-400 shrink-0" />
+            <input 
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari invoice berdasarkan ID, Nama Klien, Perusahaan..."
+              className="w-full text-xs bg-transparent border-none focus:outline-none focus:ring-0 text-slate-800"
+              id="inp-search-inv"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end" id="filter-pills">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            {["All", "Paid", "Unpaid", "Overdue", "Draft"].map((st) => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                className={`px-3 py-1 text-[11px] font-semibold rounded-full transition-colors cursor-pointer ${
+                  statusFilter === st 
+                    ? "bg-blue-600 text-white" 
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+                id={`filter-pill-${st}`}
+              >
+                {st === "All" ? "Semua Tagihan" : st === "Paid" ? "Lunas" : st === "Unpaid" ? "Belum Bayar" : st === "Overdue" ? "Terlambat" : "Draft"}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end" id="filter-pills">
-          <Filter className="w-3.5 h-3.5 text-slate-400" />
-          {["All", "Paid", "Unpaid", "Overdue", "Draft"].map((st) => (
-            <button
-              key={st}
-              onClick={() => setStatusFilter(st)}
-              className={`px-3 py-1 text-[11px] font-semibold rounded-full transition-colors cursor-pointer ${
-                statusFilter === st 
-                  ? "bg-blue-600 text-white" 
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-              id={`filter-pill-${st}`}
-            >
-              {st === "All" ? "Semua Tagihan" : st === "Paid" ? "Lunas" : st === "Unpaid" ? "Belum Bayar" : st === "Overdue" ? "Terlambat" : "Draft"}
-            </button>
-          ))}
-        </div>
+        {selectedInvoiceIds.length > 0 && (
+          <div className="flex items-center justify-between bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 px-3 py-2 rounded-xl animate-in font-sans duration-200">
+            <span className="text-[11.5px] font-bold text-rose-800 dark:text-rose-300">
+              Terpilih <strong>{selectedInvoiceIds.length}</strong> invoice untuk tindakan massal.
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirm(true)}
+                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1 shadow-sm"
+                id="bulk-delete-invoices-btn"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Hapus Massal ({selectedInvoiceIds.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedInvoiceIds([])}
+                className="text-slate-400 hover:text-slate-650 text-xs font-semibold select-none cursor-pointer"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main Invoice List Table */}
@@ -520,6 +551,20 @@ export default function InvoicesView({
           <table className="w-full text-left border-collapse" id="inv-main-table">
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <th className="py-3.5 px-4 text-center w-12" id="th-inv-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={filteredInvoices.length > 0 && selectedInvoiceIds.length === filteredInvoices.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedInvoiceIds(filteredInvoices.map(i => i.id));
+                      } else {
+                        setSelectedInvoiceIds([]);
+                      }
+                    }}
+                    className="rounded border-slate-350 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer accent-blue-600"
+                  />
+                </th>
                 <th className="py-3.5 px-6">No Invoice</th>
                 <th className="py-3.5 px-6">Nama Instansi / Klien</th>
                 <th className="py-3.5 px-5 font-mono">Bulan Buku</th>
@@ -531,7 +576,7 @@ export default function InvoicesView({
             <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
               {filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold">
+                  <td colSpan={7} className="py-8 text-center text-slate-400 font-semibold">
                     Tidak ditemukan ada invoice dengan kriteria tersebut.
                   </td>
                 </tr>
@@ -541,6 +586,20 @@ export default function InvoicesView({
                   
                   return (
                     <tr className="hover:bg-slate-50/50 transition-colors" key={inv.id} id={`row-inv-${inv.id}`}>
+                      <td className="py-4 px-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedInvoiceIds.includes(inv.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedInvoiceIds(prev => [...prev, inv.id]);
+                            } else {
+                              setSelectedInvoiceIds(prev => prev.filter(id => id !== inv.id));
+                            }
+                          }}
+                          className="rounded border-slate-350 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer accent-blue-600"
+                        />
+                      </td>
                       {/* ID No */}
                       <td className="py-4 px-6 font-mono font-bold text-slate-900" id={`td-code-${inv.id}`}>
                         {inv.id}
@@ -635,6 +694,37 @@ export default function InvoicesView({
                               title="Buka Portal Pembayaran Instan QRIS & VA Klien"
                             >
                               <CreditCard className="w-3 h-3" /> Link Bayar
+                            </button>
+                          )}
+
+                          {/* 5. Delete Invoice */}
+                          {confirmDeleteId === inv.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  const remaining = invoices.filter(i => i.id !== inv.id);
+                                  onChangeInvoices(remaining);
+                                  setConfirmDeleteId(null);
+                                  if (triggerToast) triggerToast(`Invoice #${inv.id} berhasil dihapus secara permanen.`, "success");
+                                }}
+                                className="p-1 px-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] font-bold transition-colors cursor-pointer"
+                              >
+                                Ya, Hapus
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="p-1 px-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold transition-colors cursor-pointer"
+                              >
+                                Batal
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(inv.id)}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded transition-colors cursor-pointer"
+                              title="Hapus Invoice"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
@@ -1185,6 +1275,48 @@ export default function InvoicesView({
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Invoices Confirmation Dialog */}
+      {isBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150" id="bulk-inv-delete-modal-overlay">
+          <div className="bg-white dark:bg-[#151e2e] w-full max-w-md p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl">
+            <div className="flex items-center gap-3 text-rose-600 mb-4">
+              <AlertTriangle className="w-6 h-6 shrink-0 animate-bounce" />
+              <h3 className="text-sm font-bold uppercase tracking-wider font-sans">
+                Hapus Massal Invoice
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-350 leading-relaxed mb-6">
+              Apakah Anda benar-benar yakin ingin menghapus secara permanen sebanyak <strong className="text-rose-650 font-bold">{selectedInvoiceIds.length}</strong> invoice terpilih?
+              <br /><br />
+              Tindakan ini bersifat permanen dan tidak dapat dibatalkan. Riwayat buku kas yang terhubung mungkin perlu disesuaikan secara manual.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirm(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const remaining = invoices.filter(i => !selectedInvoiceIds.includes(i.id));
+                  onChangeInvoices(remaining);
+                  setSelectedInvoiceIds([]);
+                  setIsBulkDeleteConfirm(false);
+                  if (triggerToast) triggerToast("Seluruh invoice terpilih berhasil dihapus massal.", "success");
+                }}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-all hover:scale-[1.01]"
+                id="bulk-delete-inv-confirm-btn"
+              >
+                Ya, Hapus Massal
+              </button>
+            </div>
           </div>
         </div>
       )}

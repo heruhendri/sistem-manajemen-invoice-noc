@@ -86,95 +86,7 @@ export const INITIAL_SERVICE_CATEGORIES: ServiceCategory[] = [
 ];
 
 // Initial Clients
-export const INITIAL_CLIENTS: Client[] = [
-  {
-    id: "CLI-001",
-    name: "Budi Hartono",
-    company: "IndoNet Solusindo",
-    email: "budi.hartono@indonet.net.id",
-    phone: "081234567890",
-    address: "Jl. HR Rasuna Said No. 12, Jakarta Selatan",
-    nocNotes: "Server bandwidth utama sering spike di atas 90% pada pukul 12:00-14:00. Kirimkan log ping tambahan.",
-    communicationPreference: "whatsapp",
-    serviceType: "NOC Standard 24x7",
-    monthlyFee: 5500000,
-    status: "Active",
-    createdAt: "2026-01-15",
-    selectedServices: ["SVC-002"]
-  },
-  {
-    id: "CLI-002",
-    name: "Ratna Sari",
-    company: "PT Citra Global ISP",
-    email: "ratna.sari@citraglobal.net",
-    phone: "081987654321",
-    address: "Gedung Cyber LT 4, Kuningan, Jakarta Selatan",
-    nocNotes: "Sangat sensitif terhadap SLA Latency. Butuh alert telegram/WA detik itu juga jika link backup terindikasi flapping.",
-    communicationPreference: "whatsapp",
-    serviceType: "NOC Enterprise High-Availability",
-    monthlyFee: 12150000, // combined: fixed (12.000.000) + Mikrotik (30 active * 5000 = 150.000)
-    status: "Active",
-    createdAt: "2026-01-20",
-    selectedServices: ["SVC-003", "SVC-MT-01"],
-    mikrotikIp: "103.124.99.2",
-    mikrotikPort: 8728,
-    mikrotikUser: "noc_monitor",
-    mikrotikPassword: "SuperSecurePassword123",
-    mtActivePppoeCount: 30,
-    mtActiveHotspotCount: 88,
-    mtPppoeSecretCount: 154,
-    mtRouterModel: "MikroTik CCR2004-16G-2S+",
-    mtUptime: "45d 12h 04m",
-    mtLastSync: "2026-06-02 10:45:11",
-    customPricePerPppoe: 5000,
-    useManualMikrotikCounts: false
-  },
-  {
-    id: "CLI-003",
-    name: "Agus Wijaya",
-    company: "Techno Sinergi Corp",
-    email: "agus.wijaya@tsm.co.id",
-    phone: "085699442211",
-    address: "Kawasan Industri MM2100 Blok C-3, Cibitung",
-    nocNotes: "Monitoring berjalan lancar. Hubungi PIC lokal bapak Edi jika backup link BGP down.",
-    communicationPreference: "email",
-    serviceType: "NOC Basic 8x5",
-    monthlyFee: 3000000,
-    status: "Active",
-    createdAt: "2026-02-10",
-    selectedServices: ["SVC-001"]
-  },
-  {
-    id: "CLI-004",
-    name: "Maria Lestari",
-    company: "Aero Global Hosting",
-    email: "billing@aeroglobal.id",
-    phone: "087755331122",
-    address: "Komp. Ruko Balikpapan Super Block No. B-2, Balikpapan",
-    nocNotes: "Pelanggan hosting korporat. Melakukan pemeliharaan rutin UPS switchboard setiap hari Minggu pagi.",
-    communicationPreference: "email",
-    serviceType: "SLA Gold Monitoring 24x7",
-    monthlyFee: 7500000,
-    status: "Active",
-    createdAt: "2026-03-01",
-    selectedServices: ["SVC-004"]
-  },
-  {
-    id: "CLI-005",
-    name: "Wahyu Pratama",
-    company: "Sinarindo Security",
-    email: "wahyu@sinarindo.co.id",
-    phone: "082122334455",
-    address: "Jl. Jend. Sudirman Kav 52-53, Jakarta",
-    nocNotes: "Kontrak ditangguhkan sementara karena relokasi kantor utama.",
-    communicationPreference: "whatsapp",
-    serviceType: "NOC Standard 24x7",
-    monthlyFee: 5500000,
-    status: "Inactive",
-    createdAt: "2026-01-05",
-    selectedServices: ["SVC-002"]
-  }
-];
+export const INITIAL_CLIENTS: Client[] = [];
 
 // Initial Invoices spanning March, April, May, and June 2026
 export const INITIAL_INVOICES: Invoice[] = [
@@ -595,9 +507,9 @@ export const loadData = () => {
   let templatesStr = localStorage.getItem(KEY_TEMPLATES);
   let svcStr = localStorage.getItem(KEY_SERVICE_CATEGORIES);
 
-  let clients: Client[] = clientsStr ? JSON.parse(clientsStr) : INITIAL_CLIENTS;
-  let invoices: Invoice[] = invoicesStr ? JSON.parse(invoicesStr) : INITIAL_INVOICES;
-  let bookkeeping: BookkeepingRecord[] = bookkeepingStr ? JSON.parse(bookkeepingStr) : INITIAL_BOOKKEEPING;
+  let clients: Client[] = clientsStr ? JSON.parse(clientsStr) : [];
+  let invoices: Invoice[] = invoicesStr ? JSON.parse(invoicesStr) : [];
+  let bookkeeping: BookkeepingRecord[] = bookkeepingStr ? JSON.parse(bookkeepingStr) : [];
   let templates: NotificationTemplate[] = templatesStr ? JSON.parse(templatesStr) : INITIAL_TEMPLATES;
   let serviceCategories: ServiceCategory[] = svcStr ? JSON.parse(svcStr) : INITIAL_SERVICE_CATEGORIES;
 

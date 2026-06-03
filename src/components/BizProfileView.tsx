@@ -17,22 +17,40 @@ import {
   Upload,
   Plus,
   Trash2,
-  Check
+  Check,
+  Database,
+  AlertTriangle,
+  UploadCloud,
+  RefreshCw,
+  Download,
+  ShieldCheck
 } from "lucide-react";
 
 interface BizProfileViewProps {
   bizProfile: BizProfile;
   onUpdateProfile: (profile: BizProfile) => void;
   triggerToast?: (message: string, type?: "success" | "warning" | "error" | "info") => void;
+  onResetData?: () => void;
+  onRestoreData?: (importedData: any) => void;
+  clients?: any[];
+  invoices?: any[];
+  bookkeeping?: any[];
+  templates?: any[];
 }
 
 export default function BizProfileView({
   bizProfile,
   onUpdateProfile,
-  triggerToast
+  triggerToast,
+  onResetData,
+  onRestoreData,
+  clients = [],
+  invoices = [],
+  bookkeeping = [],
+  templates = []
 }: BizProfileViewProps) {
   // Tabs for the profile control panel
-  const [activeSubTab, setActiveSubTab] = useState<"identity" | "pdf_template" | "payments">("identity");
+  const [activeSubTab, setActiveSubTab] = useState<"identity" | "pdf_template" | "payments" | "system">("identity");
 
   // Initializing state with defaults if missing
   const [form, setForm] = useState<BizProfile>(() => {
@@ -54,6 +72,9 @@ export default function BizProfileView({
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [bypassDemoActive, setBypassDemoActive] = useState<boolean>(() => {
+    return localStorage.getItem("noc_portal_enable_quick_demo") !== "false";
+  });
 
   // New Custom Payment Method creation helper states
   const [newPayName, setNewPayName] = useState("");
@@ -113,6 +134,65 @@ export default function BizProfileView({
         notify("Kertas QRIS Statis berhasil diunggah!", "success");
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSystemDownloadBackup = () => {
+    notify("Memulai pembentukan file cadangan JSON...", "info");
+
+    const bundleData = {
+      manifest: {
+        appName: "Sistem Billing SLA NOC Nusantara",
+        exportTime: new Date().toISOString(),
+        author: "Finance & Networks Department",
+        integrityKey: "MD5-NOCNET-SLA-GUARANTEE"
+      },
+      clients: clients,
+      invoices: invoices,
+      bookkeeping: bookkeeping,
+      templates: templates
+    };
+
+    try {
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+        JSON.stringify(bundleData, null, 2)
+      )}`;
+      
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", jsonString);
+      downloadAnchor.setAttribute("download", `noc_billing_db_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      notify("Sukses! File backup harian berhasil terunduh ke komputer Anda.", "success");
+    } catch (e) {
+      notify("Gagal mengunduh file JSON.", "error");
+    }
+  };
+
+  const handleSystemUploadRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const parsed = JSON.parse(event.target?.result as string);
+          if (parsed && (parsed.clients || parsed.invoices)) {
+            if (window.confirm("Apakah Anda yakin ingin memulihkan database dari file cadangan ini? Seluruh data Klien, Invoice, dan Kas saat ini akan tertimpa.")) {
+              if (onRestoreData) {
+                onRestoreData(parsed);
+                notify("Sistem Keuangan & SLA Klien berhasil dipulihkan dari file JSON!", "success");
+              }
+            }
+          } else {
+            notify("Format file JSON tidak cocok dengan blueprint backup database NOC.", "error");
+          }
+        } catch (error) {
+          notify("Gagal membaca atau mem-parsing file JSON.", "error");
+        }
+      };
+      reader.readAsText(file);
     }
   };
 
@@ -231,6 +311,18 @@ export default function BizProfileView({
         >
           <CreditCard className="w-4 h-4" />
           3. Pilihan Metode Pembayaran & QRIS Statis
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab("system")}
+          className={`px-4 py-2.5 font-bold rounded-t-xl flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeSubTab === "system"
+              ? "border-rose-600 bg-white dark:bg-slate-900 text-rose-650 dark:text-rose-400 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white"
+          }`}
+        >
+          <Database className="w-4 h-4" />
+          4. Kelola & Pembersihan Data
         </button>
       </div>
 
@@ -755,6 +847,135 @@ export default function BizProfileView({
 
               </div>
 
+            </div>
+          )}
+
+          {activeSubTab === "system" && (
+            <div className="space-y-4 text-xs" id="subtab-system-panel">
+              <div className="p-4 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl border border-rose-150 text-[11px] leading-relaxed text-rose-750 dark:text-rose-400 font-medium">
+                <AlertTriangle className="w-4 h-4 text-rose-605 text-rose-500 block mb-1" />
+                <strong>Zona Bahaya NOC Nusantara Admin:</strong> Gunakan menu ini untuk mengosongkan / membersihkan seluruh data simulasi dari instansi agar sistem siap beroperasi penuh pada mode produksi riil, atau kelola pencadangan manual data Anda.
+              </div>
+
+              {/* Card 0: Security & Bypass Portal Pelanggan Settings */}
+              <div className="p-4 bg-white dark:bg-[#0d1527] border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
+                <div className="border-b border-slate-200 dark:border-slate-800 pb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-850 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    Keamanan & Akses Cepat Baypas Demo Pelanggan
+                  </span>
+                  <span className="text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 px-2 py-0.5 rounded font-mono font-bold">PORTAL DEMO SECURITY</span>
+                </div>
+                
+                <p className="text-slate-500 leading-relaxed text-[11.5px]">
+                  Aktifkan atau nonaktifkan daftar klik-masuk demo instan di Portal Pelanggan. Jika akses baypas dinonaktifkan, akun demo pelanggan tidak dapat diakses tanpa pencarian kartu kontak secara manual (untuk keamanan demonstrasi production).
+                </p>
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = !bypassDemoActive;
+                      setBypassDemoActive(val);
+                      localStorage.setItem("noc_portal_enable_quick_demo", String(val));
+                      notify(val ? "Akses baypas demo pelanggan AKTIF!" : "Akses baypas demo pelanggan DINONAKTIFKAN!", "success");
+                    }}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 border ${
+                      bypassDemoActive 
+                        ? "bg-blue-650 hover:bg-blue-700 bg-blue-600 text-white border-blue-600 hover:border-blue-700 shadow-xs" 
+                        : "bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800/80"
+                    }`}
+                  >
+                    {bypassDemoActive ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-green-400 animate-ping"></span>
+                        Akses Baypas: AKTIF (Akses Demo Diizinkan)
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                        Akses Baypas: NON-AKTIF (Demo Dikunci)
+                      </>
+                    )}
+                  </button>
+                  
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {bypassDemoActive 
+                      ? "🟢 Pelanggan saat ini diizinkan mem-baypas login menggunakan daftar sekali klik." 
+                      : "🔴 Pelanggan saat ini dipaksa memasukkan No HP / Email / ID secara manual."}
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 1: Wipe Simulation Data */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
+                <div className="border-b border-slate-200 dark:border-slate-800 pb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-850 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4 text-rose-600" />
+                    Pembersihan Data Demonstrasi / Simulasi
+                  </span>
+                  <span className="text-[10px] bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 px-2 py-0.5 rounded font-mono font-bold">WIPE DATA</span>
+                </div>
+                
+                <p className="text-slate-500 leading-relaxed text-[11px]">
+                  Tindakan ini akan menghapus semua Klien simulasi, rilis tagihan (Invoices), dan histori denda/kas (Bookkeeping) dari local storage browser Anda untuk beralih secara bersih ke mode operasi produksi rill.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("🚨 PERINGATAN KRITIS: Tindakan ini akan menghapus SELURUH data Klien, Invoice, dan Buku Kas secara permanen dari browser Anda. Apakah Anda yakin ingin melanjutkannya?")) {
+                      if (onResetData) {
+                        onResetData();
+                      }
+                    }
+                  }}
+                  className="px-4 py-2 bg-rose-650 hover:bg-rose-700 text-white rounded-lg font-bold flex items-center gap-1 cursor-pointer transition-colors text-[11px]"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Hapus Semua Data Simulasi & Mulai Kosong
+                </button>
+              </div>
+
+              {/* Card 2: Backup / Restore */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-4">
+                <div className="border-b border-slate-200 dark:border-slate-800 pb-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Database className="w-4 h-4 text-teal-600" />
+                    Backup & Restore Database Manual (.JSON)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Backup */}
+                  <div className="space-y-2">
+                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Langkah 1: Ekspor Database</span>
+                    <p className="text-slate-500 text-[10.5px]">Unduh file backup enkripsi data lokal Anda langsung ke PC / Perangkat Lokal sebagai salinan cadangan yang aman.</p>
+                    <button
+                      type="button"
+                      onClick={handleSystemDownloadBackup}
+                      className="py-2 px-3 bg-white dark:bg-slate-950 border border-slate-250 dark:border-slate-800 hover:bg-slate-100 rounded-lg text-slate-700 dark:text-white font-bold flex items-center gap-1.5 cursor-pointer text-[11px] transition-all"
+                    >
+                      <Download className="w-4 h-4 text-teal-650" /> Unduh .json Cadangan
+                    </button>
+                  </div>
+
+                  {/* Restore */}
+                  <div className="space-y-2">
+                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Langkah 2: Pulihkan Database</span>
+                    <p className="text-slate-500 text-[10.5px]">Pilih file .json cadangan sebelumnya untuk menulis urat dan memulihkan keadaan data internal instansi.</p>
+                    
+                    <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-655 bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors">
+                      <UploadCloud className="w-4 h-4" /> Pilih File JSON & Restore
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleSystemUploadRestore}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

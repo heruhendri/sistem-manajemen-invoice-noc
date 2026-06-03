@@ -25,7 +25,9 @@ import {
   ArrowRight,
   ShieldCheck,
   CheckCircle,
-  Clock
+  Clock,
+  Users,
+  UploadCloud
 } from "lucide-react";
 
 interface IntegrationViewProps {
@@ -36,6 +38,8 @@ interface IntegrationViewProps {
   clients: Client[];
   invoices: Invoice[];
   triggerToast?: (message: string, type?: "success" | "warning" | "error" | "info") => void;
+  onResetData?: () => void;
+  onRestoreData?: (imported: any) => void;
 }
 
 interface TelegramLog {
@@ -62,7 +66,9 @@ export default function IntegrationView({
   onSetWhatsappConnected,
   clients,
   invoices,
-  triggerToast
+  triggerToast,
+  onResetData,
+  onRestoreData
 }: IntegrationViewProps) {
   const notify = (msg: string, type: "success" | "warning" | "error" | "info" = "info") => {
     if (triggerToast) {
@@ -73,13 +79,36 @@ export default function IntegrationView({
   };
 
   // Sub-tabs segment state: "wa-email" (default) or "telegram" (new)
-  const [activeTabSegment, setActiveTabSegment] = useState<"wa-email" | "telegram">("wa-email");
+  const [activeTabSegment, setActiveTabSegment] = useState<"wa-email" | "telegram" | "whatsapp-bot">("wa-email");
 
   // WA QR pairing states
   const [pairingProgress, setPairingProgress] = useState<"none" | "initializing" | "ready" | "connecting" | "completed">(
-    whatsappConnected ? "completed" : "none"
+    whatsappConnected ? "completed" : "ready"
   );
   const [phoneNumber, setPhoneNumber] = useState(whatsappConnected ? "081234567890" : "");
+
+  // Restore Database State Confirm inside Integration
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState<any | null>(null);
+
+  // WhatsApp Multi-Admin state
+  const [whatsappAdminPhones, setWhatsappAdminPhones] = useState<string[]>([
+    "081234567890",
+    "089876543210"
+  ]);
+  const [newAdminPhone, setNewAdminPhone] = useState("");
+  const [whatsappChat, setWhatsappChat] = useState<Array<{ id: string; sender: "user" | "bot"; text: string; timestamp: string }>>([
+    {
+      id: "wa-1",
+      sender: "bot",
+      text: "🤖 *NOC Nusantara Multi-Admin WhatsApp Bot*\n\nSelamat datang! Gunakan list perintah di bawah untuk monitoring status database:\n\n👉 *!menu* - Tampilkan semua menu command\n👉 *!pelanggan* - Lihat live list klien terpasang\n👉 *!invoice* - Cek invoice & outstanding billing\n👉 *!keuangan* - Laporan arus kas Buku Kas\n👉 *!vps* - Ping check status Routerboard aktif",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
+  const [whatsappInput, setWhatsappInput] = useState("");
+  const [whatsappIsTyping, setWhatsappIsTyping] = useState(false);
+  const [telegramBroadcastGroup, setTelegramBroadcastGroup] = useState("#NOC-NUSANTARA-ALERTS");
+  const [telegramBroadcastText, setTelegramBroadcastText] = useState("");
+  const [isTelegramBroadcasting, setIsTelegramBroadcasting] = useState(false);
   
   // Template customization states
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(templates[0]?.id || "");
@@ -131,6 +160,143 @@ export default function IntegrationView({
   // Terminate whatsapp link
   const handleDisconnect = () => {
     setShowDisconnectConfirm(true);
+  };
+
+  // Restore DB File Handler
+  const handleSystemUploadRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const parsed = JSON.parse(event.target?.result as string);
+          if (parsed && (parsed.clients || parsed.invoices)) {
+            setShowRestoreConfirm(parsed);
+          } else {
+            notify("Format file JSON tidak cocok dengan blueprint backup database NOC.", "error");
+          }
+        } catch (error) {
+          notify("Gagal membaca atau mem-parsing file JSON.", "error");
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  // WhatsApp Admin Contact management mutations
+  const handleAddAdminPhone = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAdminPhone) return;
+    const cleanNum = newAdminPhone.trim();
+    if (!whatsappAdminPhones.includes(cleanNum)) {
+      setWhatsappAdminPhones([...whatsappAdminPhones, cleanNum]);
+      setNewAdminPhone("");
+      notify(`Nomor admin +${cleanNum} ditambahkan sebagai multi-admin sukses!`, "success");
+    } else {
+      notify("Nomor tersebut sudah terdaftar sebagai admin.", "warning");
+    }
+  };
+
+  const handleDeleteAdminPhone = (num: string) => {
+    if (whatsappAdminPhones.length <= 1) {
+      notify("Harus menyisakan minimal 1 nomor admin utama.", "warning");
+      return;
+    }
+    setWhatsappAdminPhones(whatsappAdminPhones.filter(p => p !== num));
+    notify(`Nomor admin +${num} berhasil dihapus dari daftar multi-admin.`, "success");
+  };
+
+  // Dispatch NOC Alert Notification Group messaging
+  const handleTelegramBroadcastSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!telegramBroadcastText) {
+      notify("Harap ketik pesan informasi noc alert terlebih dahulu.", "warning");
+      return;
+    }
+    setIsTelegramBroadcasting(true);
+    notify(`Menghubungkan ke Chat API Telegram Group: ${telegramBroadcastGroup}...`, "info");
+    
+    setTimeout(() => {
+      setIsTelegramBroadcasting(false);
+      setTelegramBroadcastText("");
+      
+      const newLog: TelegramLog = {
+        id: `TG-NOC-${Math.floor(Math.random() * 900) + 100}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type: "Ping Test", // Represent as system NOC ping
+        detail: `NOC ALERT BROADCAST: ${telegramBroadcastText.slice(0, 30)}...`,
+        status: "Success",
+        destination: telegramBroadcastGroup
+      };
+      
+      saveTelegramLogsToLocal([newLog, ...telegramLogs]);
+      notify(`Sukses! Pesan NOC Alert berhasil didistribusikan ke group telegram ${telegramBroadcastGroup}`, "success");
+    }, 1200);
+  };
+
+  // WhatsApp Chatbot response dispatching
+  const handleWhatsappInputSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!whatsappInput.trim()) return;
+    
+    const userQuery = whatsappInput.trim();
+    const adminContact = whatsappAdminPhones[0] || "081234567890";
+    
+    // Add user message to log
+    const newUserMsg = {
+      id: `wa-u-${Date.now()}`,
+      sender: "user" as const,
+      text: userQuery,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    setWhatsappChat(prev => [...prev, newUserMsg]);
+    setWhatsappInput("");
+    setWhatsappIsTyping(true);
+    
+    // Process response after delay
+    setTimeout(() => {
+      let botResponseText = "";
+      const queryLower = userQuery.toLowerCase().trim();
+      
+      if (queryLower === "!menu") {
+        botResponseText = "🤖 *NOC NUSANTARA BOT SERVICES* • Perintah Utama:\n\n👉 *!pelanggan* - Lihat live list klien terpasang\n👉 *!invoice* - Cek invoice & outstanding billing\n👉 *!keuangan* - Ringkasan laba rugi Buku Kas\n👉 *!vps* - Ping check status Routerboard aktif\n👉 *!menu* - Tampilkan menu sedia";
+      } else if (queryLower.includes("pelanggan") || queryLower === "!pelanggan") {
+        botResponseText = `👥 *LIVE CUSTOMER DATABASE NOC* (${clients.length} terdaftar):\n\n` + 
+          clients.map((c, i) => `${i + 1}. *${c.company}* (PIC: ${c.name})\n⚡ Paket: ${c.serviceType || "Premium SLA Broadband"}\n📡 Router: ${c.mikrotikIp || "No IP"}`).join("\n\n");
+      } else if (queryLower.includes("invoice") || queryLower === "!invoice") {
+        const unpaidCount = invoices.filter(i => i.status === "Unpaid").length;
+        const overdueCount = invoices.filter(i => i.status === "Overdue").length;
+        const sumUnpaid = invoices.filter(i => i.status !== "Paid").reduce((acc, curr) => acc + curr.amount, 0);
+        
+        botResponseText = `📝 *LAPORAN INVOICE & PENAGIHAN KLIEN*\n\n` +
+          `• Belum Bayar: *${unpaidCount} Klien*\n` +
+          `• Menunggak (Overdue): *${overdueCount} Klien*\n` +
+          `• Outstanding Piutang: *Rp ${sumUnpaid.toLocaleString("id-ID")}*\n\n` +
+          `_Ketik !pelanggan untuk rincian data alamat penagihan._`;
+      } else if (queryLower.includes("keuangan") || queryLower === "!keuangan") {
+        const incomeSum = invoices.filter(i => i.status === "Paid").reduce((acc, curr) => acc + curr.amount, 0);
+        
+        botResponseText = `💰 *LAPORAN POSISI KAS MASUK POSITIF (VPS)*\n\n` +
+          `🏦 Akumulasi Arus Kas Masuk: *Rp ${incomeSum.toLocaleString("id-ID")}*\n\n` +
+          `Data di-sinkronisasikan real-time dari riwayat denda laku.`;
+      } else if (queryLower.includes("vps") || queryLower === "!vps") {
+        botResponseText = `📡 *DIAGNOSTIK LINK CORE CHANNELS STATUS*:\n\n` +
+          clients.filter(c => c.mikrotikIp && c.status === "Active").slice(0, 4).map(c => `🟢 [LINK OK] *${c.company}* - Latency: *${Math.floor(Math.random() * 10) + 11}ms* (SLA Stable)`).join("\n") || "⚠️ Tidak ada VPS IP Host terdaftar.";
+      } else {
+        botResponseText = `🤖 *NOC Nusantara WhatsApp Bot*\n\nMaaf, perintah *"${userQuery}"* tidak dikenali.\n\nKetik *!menu* untuk memunculkan list petunjuk monitoring beraliansi.`;
+      }
+      
+      const newBotMsg = {
+        id: `wa-b-${Date.now()}`,
+        sender: "bot" as const,
+        text: botResponseText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      
+      setWhatsappChat(prev => [...prev, newBotMsg]);
+      setWhatsappIsTyping(false);
+    }, 850);
   };
 
   // Text formatter for sandbox rendering
@@ -255,6 +421,143 @@ export default function IntegrationView({
   const saveTelegramLogsToLocal = (newLogs: TelegramLog[]) => {
     setTelegramLogs(newLogs);
     localStorage.setItem("telegram_system_logs", JSON.stringify(newLogs));
+  };
+
+  // ==========================================
+  // INTERACTIVE TELEGRAM BOT INLINE SIMULATOR
+  // ==========================================
+  const [simulatedChat, setSimulatedChat] = useState<any[]>([
+    {
+      id: "bot-init",
+      sender: "bot",
+      text: "🤖 *NOC Net Nusantara BillBot* is active and ready!\n\nUse the inline buttons below to query the database, run operations, or trigger backups and restores:",
+      timestamp: "Today",
+      inlineButtons: [
+        { text: "📊 Koneksi Routerboard", callbackId: "cmd_view_routers" },
+        { text: "🧾 Ringkasan Keuangan", callbackId: "cmd_view_cash" },
+        { text: "📦 Buat Backup Database", callbackId: "cmd_do_backup" },
+        { text: "🔄 Restore Backup .json", callbackId: "cmd_do_restore" },
+        { text: "⚙️ System Status Nodes", callbackId: "cmd_view_status" }
+      ]
+    }
+  ]);
+  const [botIsTyping, setBotIsTyping] = useState<boolean>(false);
+
+  const handleBotCallback = (callbackId: string, buttonText: string) => {
+    if (botIsTyping) return;
+
+    // 1. Add User message bubble showing click
+    const userMsgId = `user-${Date.now()}`;
+    const userMsg = {
+      id: userMsgId,
+      sender: "user" as const,
+      text: `👉 Klik tombol inline: *${buttonText}*`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setSimulatedChat(prev => [...prev, userMsg]);
+    setBotIsTyping(true);
+
+    setTimeout(() => {
+      let botResponseText = "";
+      let buttonsAfter = [
+        { text: "📊 Koneksi Routerboard", callbackId: "cmd_view_routers" },
+        { text: "🧾 Ringkasan Keuangan", callbackId: "cmd_view_cash" },
+        { text: "📦 Buat Backup Database", callbackId: "cmd_do_backup" },
+        { text: "🔄 Restore Backup .json", callbackId: "cmd_do_restore" },
+        { text: "⚙️ System Status Nodes", callbackId: "cmd_view_status" }
+      ];
+
+      if (callbackId === "cmd_view_routers") {
+        const activeClients = clients.filter(c => c.status === "Active");
+        const withMikrotik = clients.filter(c => c.mikrotikIp);
+        botResponseText = `📊 *Laporan Perbandingan Koneksi per Routerboard*\n\n` +
+          `• Total Klien Terdaftar: *${clients.length}*\n` +
+          `• Klien Aktif: *${activeClients.length}*\n` +
+          `• Routerboard MikroTik Sinkron: *${withMikrotik.length}*\n\n` +
+          `*Daftar Router Sinkron & Traffic:*` +
+          (withMikrotik.length === 0 
+            ? `\n_(Belum ada router MikroTik yang terkonfigurasi pada klien)_` 
+            : `\n` + withMikrotik.map(c => `🌐 *${c.company}* (${c.mtRouterModel || 'RB-Series'})\n  └─ IP: \`${c.mikrotikIp}:${c.mikrotikPort}\` | PPPoE Aktif: *${c.mtActivePppoeCount || 0} user*\n  └─ Uptime: \`${c.mtUptime || 'N/A'}\` | Sync: _${c.mtLastSync || 'N/A'}_`).join("\n\n"));
+      } 
+      else if (callbackId === "cmd_view_cash") {
+        const totalInvoiced = invoices.reduce((acc, inv) => acc + inv.amount, 0);
+        const totalPaid = invoices.filter(inv => inv.status === "Paid").reduce((acc, inv) => acc + inv.amount, 0);
+        const unpaidCount = invoices.filter(inv => inv.status !== "Paid").length;
+        
+        botResponseText = `🧾 *Laporan Kas & Ringkasan Keuangan SLA NOC*\n\n` +
+          `• Total Omset Invoice Terbit: *Rp ${totalInvoiced.toLocaleString("id-ID")}*\n` +
+          `• Total Dana Berhasil Ditagih: *Rp ${totalPaid.toLocaleString("id-ID")}*\n` +
+          `• Invoice Belum Lunas (Pending/Draft): *${unpaidCount} Tagihan*\n\n` +
+          `💰 _Status Rekonsiliasi Bank & QRIS otomatis berjalan real-time._`;
+      } 
+      else if (callbackId === "cmd_do_backup") {
+        botResponseText = `📦 *Backup Database NOC Berhasil Di-generate!*\n\n` +
+          `• File Name: \`noc_db_backup_${new Date().toISOString().slice(0, 10)}.json\`\n` +
+          `• Total Klien: *${clients.length}*\n` +
+          `• Total Invoice: *${invoices.length}*\n` +
+          `• Status Integritas: *MD5-SAFE-SECUREPRO*\n\n` +
+          `👇 _Unduh file backup langsung ke perangkat lokal komputer Anda dengan mengklik tombol di bawah ini:_`;
+          
+        buttonsAfter = [
+          { text: "⬇️ Download File .JSON Backup", callbackId: "cmd_trigger_download_pc" },
+          { text: " Kembali ke Menu Utama", callbackId: "cmd_view_main" }
+        ];
+
+        // Also push a manual backup log to the list!
+        const sizeBytes = JSON.stringify({ clients, invoices }).length;
+        const sizeKb = (sizeBytes / 1024).toFixed(2);
+        const newLog: TelegramLog = {
+          id: `log-${Date.now()}`,
+          timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          type: "Backup Database",
+          detail: `Bot Simulator Keyboard Trigger Backup: Ukuran ${sizeKb} KB (Total Klien: ${clients.length})`,
+          status: "Success",
+          destination: "@NocBotSimulatedInline"
+        };
+        saveTelegramLogsToLocal([newLog, ...telegramLogs]);
+      }
+      else if (callbackId === "cmd_trigger_download_pc") {
+        handleDownloadBackupLocal();
+        botResponseText = `✅ *Pengunduhan File Backup Dipicu di Browser PC!* Check folder download pc Anda.`;
+      }
+      else if (callbackId === "cmd_do_restore") {
+        botResponseText = `🔄 *Menu Pemulihan / Restore Database SLA NOC*\n\n` +
+          `Pilih salah satu metode tindakan pemulihan di bawah ini:\n\n` +
+          `⚠️ *PERINGATAN:* Melakukan restore atau reset data akan mengganti isi database local pada memori utama browser Anda secara instan.`;
+        buttonsAfter = [
+          { text: "⚠️ Kosongkan Data Simulasi & Mulai Riil", callbackId: "cmd_trigger_reset_total" },
+          { text: " Kembali ke Menu Utama", callbackId: "cmd_view_main" }
+        ];
+      }
+      else if (callbackId === "cmd_trigger_reset_total") {
+        if (onResetData) onResetData();
+        botResponseText = `♻️ *Database Kosong Tercipta!*\n\nSeluruh data simulasi bawaan telah berhasil dihapus secara bersih. Layanan siap digunakan dari nol untuk mencatat data pelanggan riil Anda!`;
+      }
+      else if (callbackId === "cmd_view_status") {
+        botResponseText = `⚙️ *Status Kesehatan Node Core SLA Monitoring*\n\n` +
+          `• CPU Monitor Engine: *1.4% (Normal)*\n` +
+          `• Websocket Stream: *Connected 🟢*\n` +
+          `• Memory Overhead: *12.8 MB / 512 MB*\n` +
+          `• Database Engine: *LocalStorage Sandbox*\n` +
+          `• Telegram API Webhook: *Online (Listening 👂)*\n` +
+          `• Database Integrity Key: \`MD5-NOCNET-SLA-GUARANTEE\``;
+      }
+      else {
+        botResponseText = `🤖 *NOC Net Nusantara BillBot* is active and ready!\n\nUse the inline buttons below to query the database, run operations, or trigger backups and restores:`;
+      }
+
+      const botMsg = {
+        id: `bot-${Date.now()}`,
+        sender: "bot" as const,
+        text: botResponseText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        inlineButtons: buttonsAfter
+      };
+
+      setSimulatedChat(prev => [...prev, botMsg]);
+      setBotIsTyping(false);
+    }, 1000);
   };
 
   // Test send ping packet to Bot
@@ -404,11 +707,11 @@ export default function IntegrationView({
         </div>
 
         {/* Tab Segment Switcher */}
-        <div className="flex bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200 dark:border-slate-800/80 w-full md:w-auto shrink-0 shadow-inner" id="integration-tab-rail">
+        <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200 dark:border-slate-800/80 w-full md:w-auto shrink-0 shadow-inner gap-1" id="integration-tab-rail">
           <button
             type="button"
             onClick={() => setActiveTabSegment("wa-email")}
-            className={`flex-1 md:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap text-center ${
+            className={`flex-grow md:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap text-center ${
               activeTabSegment === "wa-email"
                 ? "bg-white dark:bg-[#111827] text-blue-600 dark:text-blue-400 shadow-sm font-extrabold"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-250 font-semibold"
@@ -420,13 +723,25 @@ export default function IntegrationView({
           <button
             type="button"
             onClick={() => setActiveTabSegment("telegram")}
-            className={`flex-1 md:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap text-center ${
+            className={`flex-grow md:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap text-center ${
               activeTabSegment === "telegram"
                 ? "bg-white dark:bg-[#111827] text-blue-600 dark:text-blue-400 shadow-sm font-extrabold"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-250 font-semibold"
             }`}
           >
-            ✈ Telegram Backup & Rekomendasi
+            ✈ Telegram Bot & Backup
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTabSegment("whatsapp-bot")}
+            className={`flex-grow md:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap text-center ${
+              activeTabSegment === "whatsapp-bot"
+                ? "bg-white dark:bg-[#111827] text-[#128c7e] shadow-sm font-extrabold"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-250 font-semibold"
+            }`}
+          >
+            🤖 WhatsApp Multi-Admin
           </button>
         </div>
       </div>
@@ -632,6 +947,59 @@ export default function IntegrationView({
                       </button>
                     </div>
                   </div>
+
+                  {/* RESTORE DATABASE AREA */}
+                  <div className="border-t border-dashed border-slate-250 pt-3.5 space-y-3">
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] font-extrabold text-slate-800 uppercase block">Unggah Cadangan (Restore Database)</span>
+                      <span className="text-[10px] text-slate-400 block leading-normal">
+                        Kembalikan status database dari file .JSON yang telah diunduh sebelumnya.
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <label className="py-2 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold border border-emerald-200 rounded-lg text-xs cursor-pointer inline-flex items-center gap-1.5 transition-all shadow-xs w-full justify-center">
+                        <UploadCloud className="w-4 h-4" /> Pilih File Backup JSON
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleSystemUploadRestore}
+                          className="hidden"
+                          id="db-restore-file-input"
+                        />
+                      </label>
+                    </div>
+
+                    {showRestoreConfirm && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-2 animate-in fade-in duration-200" id="restore-confirm-inline">
+                        <p className="font-extrabold text-amber-950 flex items-center gap-1">⚠️ KONFIRMASI RESTORE:</p>
+                        <p className="leading-relaxed">Apakah Anda yakin ingin mengganti seluruh database Klien, Invoice, dan Kas saat ini dengan data dari file cadangan ini?</p>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onRestoreData) {
+                                onRestoreData(showRestoreConfirm);
+                                notify("Database Klien & SLA sukses dipulihkan dari file JSON!", "success");
+                              }
+                              setShowRestoreConfirm(null);
+                            }}
+                            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded cursor-pointer text-[10.5px]"
+                          >
+                            Ya, Overwrite Data
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowRestoreConfirm(null)}
+                            className="px-2.5 py-1 bg-white border border-slate-300 text-slate-700 rounded font-bold cursor-pointer text-[10.5px]"
+                          >
+                            Batal
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                 </div>
               </div>
 
@@ -795,6 +1163,308 @@ export default function IntegrationView({
 
           </div>
 
+          {/* INTERACTIVE TELEGRAM PHONE SIMULATOR CONSOLE */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4" id="telegram-bot-inline-buttons-simulator">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-mono tracking-wider text-sky-400 font-extrabold bg-sky-400/10 px-2 py-0.5 rounded-md">LIVE INTERACTIVE CONTROL</span>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 font-sans">
+                  <Smartphone className="w-4 h-4 text-sky-400 animate-pulse" />
+                  Visual Simulator Bot dengan Inline Keyboard
+                </h3>
+              </div>
+              <p className="text-xs text-slate-400 max-w-lg leading-relaxed font-sans">
+                Uji langsung semua menu bot Telegram di client simulator ini. Setiap tombol inline di bawah dapat diklik untuk memproses data riil Anda saat ini.
+              </p>
+            </div>
+
+            <div className="max-w-2xl mx-auto bg-[#0e1621] rounded-2xl overflow-hidden border border-slate-800 shadow-xl" id="tg-phone-mockup">
+              {/* Telegram App Header Bar */}
+              <div className="bg-[#17212b] px-4 py-3 flex items-center justify-between border-b border-slate-950">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-[#0088cc] flex items-center justify-center text-white font-extrabold text-sm shadow-sm font-mono">
+                    NOC
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white leading-tight font-sans">NOC Net Nusantara BillBot</h4>
+                    <span className="text-[10px] text-sky-400 font-bold flex items-center gap-1.5 font-sans">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> bot (online)
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[10px] font-mono text-slate-500 bg-slate-950/30 px-2.5 py-1 rounded-md">
+                  WEBHOOK PORT: 3000
+                </div>
+              </div>
+
+              {/* Chat bubble body container */}
+              <div className="p-4 space-y-4 max-h-96 overflow-y-auto scrollbar-thin flex flex-col pt-6 font-sans bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0e1621] to-[#0e1621]" id="tg-chat-box">
+                {simulatedChat.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col max-w-[85%] ${msg.sender === "user" ? "self-end items-end" : "self-start items-start"}`}
+                  >
+                    {/* Timestamp / Name tag */}
+                    <div className="text-[9px] text-slate-500 mb-1 font-mono">{msg.sender === "user" ? "Anda" : "NOC BillBot"} • {msg.timestamp}</div>
+
+                    {/* Bubble body content */}
+                    <div
+                      className={`p-3.5 rounded-2xl text-xs leading-relaxed ${
+                        msg.sender === "user"
+                          ? "bg-[#2b5278] text-white rounded-tr-none"
+                          : "bg-[#182533] text-slate-200 rounded-tl-none border border-slate-800/50 font-mono"
+                      }`}
+                      style={{ whiteSpace: "pre-wrap" }}
+                    >
+                      {msg.text}
+                    </div>
+
+                    {/* Inline Button Row */}
+                    {msg.sender === "bot" && msg.inlineButtons && msg.inlineButtons.length > 0 && (
+                      <div className="mt-2.5 grid grid-cols-2 gap-2.5 w-full select-none" id="inline-keyboard">
+                        {msg.inlineButtons.map((btn: any) => (
+                          <button
+                            key={btn.callbackId}
+                            type="button"
+                            onClick={() => handleBotCallback(btn.callbackId, btn.text)}
+                            className="w-full text-[10.5px] font-bold py-2 px-3 bg-[#17212b] hover:bg-[#24303f] active:scale-95 border border-[#2b394a] hover:border-sky-500 text-sky-400 rounded-xl transition-all text-center flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-sky-500/20"></span>
+                            {btn.text}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {botIsTyping && (
+                  <div className="self-start flex flex-col items-start max-w-[85%]" id="bot-typing">
+                    <div className="text-[9px] text-slate-500 mb-1 font-mono">NOC BillBot sedang mengetik...</div>
+                    <div className="p-3 bg-[#182533] text-slate-400 font-bold tracking-wider rounded-2xl rounded-tl-none animate-pulse text-xs flex items-center gap-1.5 font-sans">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                      Mengeksekusi perintah database...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Bot Bottom input panel bar */}
+              <div className="bg-[#17212b] p-3 flex items-center justify-between border-t border-slate-950 text-slate-400 text-xs">
+                <span className="shrink-0 text-slate-500 font-mono text-[10px]">[/] Command Menu</span>
+                <div className="flex-1 bg-slate-950/40 py-2 px-3 mx-2 rounded-xl border border-slate-800 text-[11px] text-slate-500 select-none">
+                  Gunakan inline markup button di atas untuk interaksi langsung
+                </div>
+                <Send className="w-4 h-4 text-slate-600 rotate-45 shrink-0" />
+              </div>
+            </div>
+          </div>
+
+        </div>
+      ) : activeTabSegment === "whatsapp-bot" ? (
+        // ===============================================
+        // NEW FEATURE: WHATSAPP SMART BOT SIMULATOR WITH MULTI-ADMINS
+        // ===============================================
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300" id="wa-bot-simulation-view">
+          {/* LEFT COLUMN: Manage Multi-Admin numbers & Dispatch alert messages (5 columns) */}
+          <div className="lg:col-span-5 space-y-6" id="wa-bot-left-col">
+            
+            {/* Box 1: Multi-Admin Number Registry */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-4" id="wa-admin-registry-card">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-3" id="wa-admin-reg-hdr">
+                <Users className="w-4 h-4 text-[#128c7e]" />
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Multi-Admin WhatsApp Bot</h3>
+              </div>
+              
+              <div className="text-xs text-slate-500 space-y-3" id="wa-admin-reg-body">
+                <p className="leading-relaxed">
+                  Daftarkan nomor telepon tim NOC Anda di sini. Hanya nomor terdaftar dalam sistem Multi-Admin yang memiliki izin akses query data sensitif melalui chatbot WhatsApp Anda.
+                </p>
+
+                {/* Form to add number */}
+                <form onSubmit={handleAddAdminPhone} className="flex gap-2" id="wa-add-admin-form">
+                  <div className="relative flex-1">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-450 font-bold text-xs">+</span>
+                    <input
+                      type="text"
+                      placeholder="628123456789"
+                      value={newAdminPhone}
+                      onChange={(e) => setNewAdminPhone(e.target.value.replace(/\D/g, ''))}
+                      className="w-full text-xs pl-5 pr-2 py-2 border border-slate-200 rounded-lg focus:outline-blue-500 font-bold bg-white"
+                      id="inp-new-admin"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-2 bg-[#128c7e] hover:bg-[#075e54] text-white text-xs font-bold rounded-lg cursor-pointer transition-all shrink-0 inline-flex items-center gap-1"
+                    id="btn-add-admin"
+                  >
+                    Tambah Admin
+                  </button>
+                </form>
+
+                {/* Current Admin Contacts List */}
+                <div className="space-y-1.5 border-t border-slate-100 pt-3" id="wa-admin-list-sect">
+                  <span className="block text-[11px] font-bold text-slate-400 uppercase">Daftar Admin Aktif:</span>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1" id="wa-admin-scroll-box">
+                    {whatsappAdminPhones.map((phone) => (
+                      <div key={phone} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-150 rounded-lg text-xs" id={`admin-row-${phone}`}>
+                        <span className="font-mono font-bold text-slate-800">+{phone}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full uppercase scale-90">Authorized</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAdminPhone(phone)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer inline-flex"
+                            title="Hapus Izin Admin"
+                            id={`btn-del-admin-${phone}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Box 2: Broadcast Alert NOC Tim ke Grup Telegram */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-4" id="telegram-broadcast-alert-card">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3" id="tg-broad-hdr">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-rose-500" />
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest font-sans">Kirim Broadcast ke Grup Telegram</h3>
+                </div>
+                <span className="text-[9.5px] font-mono bg-rose-50 text-rose-700 border border-rose-100 font-bold py-0.5 px-2 rounded-full uppercase">TIM NOC ALERT</span>
+              </div>
+
+              <form onSubmit={handleTelegramBroadcastSubmit} className="space-y-4 text-xs" id="tg-broad-form">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Grup Tujuan Telegram:
+                  </label>
+                  <input
+                    type="text"
+                    value={telegramBroadcastGroup}
+                    onChange={(e) => setTelegramBroadcastGroup(e.target.value)}
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono focus:outline-blue-500 font-bold"
+                    placeholder="misal: #NOC-NUSANTARA-ALERTS"
+                    required
+                    id="inp-tg-group"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Pesan Gangguan / Alerts Terdeteksi NOC:
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={telegramBroadcastText}
+                    onChange={(e) => setTelegramBroadcastText(e.target.value)}
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-blue-500 font-sans"
+                    placeholder="Koperatif: Terjadi gangguan link FO ruas Malang-Surabaya rtt spike..."
+                    required
+                    id="inp-tg-msg-text"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isTelegramBroadcasting}
+                  className="w-full h-9 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
+                  id="btn-send-tg-broad"
+                >
+                  <Send className="w-3.5 h-3.5 text-white" /> {isTelegramBroadcasting ? "Mendistribusikan Pesan..." : "Kirim Broadcast ke Grup Telegram"}
+                </button>
+              </form>
+            </div>
+
+          </div>
+
+          {/* RIGHT COLUMN: WhatsApp Chatbot Simulator Screen (7 columns) */}
+          <div className="lg:col-span-7" id="wa-bot-right-col">
+            <div className="bg-[#e5ddd5] rounded-xl border border-slate-300 shadow-sm overflow-hidden flex flex-col h-[525px]" id="phone-wa-body">
+              
+              {/* Green WhatsApp Header */}
+              <div className="bg-[#075e54] text-white px-4 py-3 flex items-center justify-between shrink-0" id="phone-wa-header">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-emerald-600 border border-slate-50/20 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                    WA
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-white tracking-wide">NOC BillBot • Multi-Admin Bot</h3>
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 block animate-pulse"></span>
+                      <span className="text-[10px] text-emerald-200 font-semibold uppercase">API Online v2.1</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Active Simulated Number Indicator */}
+                <div className="text-[10px] font-mono text-emerald-100 bg-[#128c7e] px-2.5 py-1 rounded-md border border-emerald-500/30">
+                  tim-noc@wa-server
+                </div>
+              </div>
+
+              {/* Chat Log Viewport Panel */}
+              <div className="flex-1 p-4 overflow-y-auto space-y-3.5 flex flex-col justify-end" id="wa-messages-viewport">
+                <div className="my-1.5 self-center bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 text-amber-900 dark:text-amber-300 text-[10.5px] px-3.5 py-1.5 rounded-lg text-center font-semibold leading-relaxed max-w-sm">
+                  🔒 Chat terenkripsi end-to-end. Bot ini merespon query parameter dari daftar admin resmi di panel kiri.
+                </div>
+
+                <div className="flex-1 flex flex-col justify-end space-y-3">
+                  {whatsappChat.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`max-w-[85%] rounded-lg p-2.5 text-xs shadow-xs transition-transform ${
+                        msg.sender === "user"
+                          ? "self-end bg-[#dcf8c6] border border-emerald-200 text-slate-950 rounded-tr-none"
+                          : "self-start bg-white border border-slate-200 text-slate-900 rounded-tl-none whitespace-pre-wrap"
+                      }`}
+                      id={`msg-wa-${msg.id}`}
+                    >
+                      <p className="font-mono leading-relaxed">{msg.text}</p>
+                      <div className="flex justify-end gap-1 mt-1 text-[9px] text-slate-450 text-right leading-none">
+                        <span>{msg.timestamp}</span>
+                        {msg.sender === "user" && <span className="text-sky-500 font-bold">✓✓</span>}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Typing Indicator Bubble */}
+                  {whatsappIsTyping && (
+                    <div className="self-start bg-white border border-slate-150 rounded-lg rounded-tl-none px-3.5 py-2 text-xs text-slate-500 flex items-center gap-1.5 animate-pulse max-w-xs shadow-xs">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#128c7e]" />
+                      <span>Sistem Bot sedang menarik database...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Message Typing Panel */}
+              <form onSubmit={handleWhatsappInputSubmit} className="bg-[#f0f0f0] p-3 border-t border-slate-300 flex gap-2 shrink-0" id="wa-chat-send-form">
+                <input
+                  type="text"
+                  placeholder="Ketik command: !menu , !pelanggan , !invoice , !keuangan , atau !vps..."
+                  value={whatsappInput}
+                  onChange={(e) => setWhatsappInput(e.target.value)}
+                  className="flex-grow text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl focus:outline-[#075e54] text-slate-800"
+                  id="inp-wa-chat"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#128c7e] hover:bg-[#075e54] text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shrink-0 inline-flex items-center gap-1"
+                  id="btn-wa-chat-send"
+                >
+                  Kirim <Send className="w-3 h-3 text-white" />
+                </button>
+              </form>
+
+            </div>
+          </div>
         </div>
       ) : (
         // ===============================================

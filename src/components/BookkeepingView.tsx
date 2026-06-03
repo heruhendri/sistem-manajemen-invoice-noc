@@ -22,6 +22,7 @@ interface BookkeepingViewProps {
   invoices: Invoice[];
   clients: Client[];
   onAddBookkeeping: (record: BookkeepingRecord) => void;
+  onDeleteBookkeeping: (idOrIds: string | string[]) => void;
   onUpdateInvoiceStatus: (invoiceId: string, status: "Paid", method: "QRIS" | "Bank Transfer") => void;
   triggerToast?: (message: string, type?: "success" | "warning" | "error" | "info") => void;
 }
@@ -43,6 +44,7 @@ export default function BookkeepingView({
   invoices,
   clients,
   onAddBookkeeping,
+  onDeleteBookkeeping,
   onUpdateInvoiceStatus,
   triggerToast
 }: BookkeepingViewProps) {
@@ -55,6 +57,9 @@ export default function BookkeepingView({
   };
   const [searchQuery, setSearchQuery] = useState("");
   const [isExpenseFormOpen, setIsExpenseFormOpen] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [selectedBookkeepingIds, setSelectedBookkeepingIds] = useState<string[]>([]);
+  const [isBulkDeleteConfirm, setIsBulkDeleteConfirm] = useState(false);
 
   // New Expense form states
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -341,16 +346,41 @@ export default function BookkeepingView({
       </div>
 
       {/* Bookkeeping Searching filter */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center gap-2" id="ledger-search-box">
-        <Search className="w-4 h-4 text-slate-400 shrink-0" />
-        <input 
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Cari log buku kas berdasarkan keterangan rincian, kategori transaksi, invoice id..."
-          className="w-full text-xs bg-transparent border-none focus:outline-none focus:ring-0 text-slate-800"
-          id="inp-search-ledger"
-        />
+      <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row gap-3 items-center justify-between" id="ledger-search-container">
+        <div className="flex items-center gap-2 flex-1 w-full" id="ledger-search-box">
+          <Search className="w-4 h-4 text-slate-400 shrink-0" />
+          <input 
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cari log buku kas berdasarkan keterangan rincian, kategori transaksi, invoice id..."
+            className="w-full text-xs bg-transparent border-none focus:outline-none focus:ring-0 text-slate-800"
+            id="inp-search-ledger"
+          />
+        </div>
+
+        {selectedBookkeepingIds.length > 0 && (
+          <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 px-3 py-1.5 rounded-xl animate-in fade-in duration-205">
+            <span className="text-[11px] font-bold text-rose-700 dark:text-rose-450">
+              Terpilih: <strong>{selectedBookkeepingIds.length}</strong> kas
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteConfirm(true)}
+              className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10.5px] font-bold cursor-pointer inline-flex items-center gap-1 shadow-sm"
+              id="bulk-delete-kas-btn"
+            >
+              Hapus Massal
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedBookkeepingIds([])}
+              className="text-slate-400 hover:text-slate-650 text-[10.5px] font-semibold hover:underline bg-transparent border-none cursor-pointer"
+            >
+              Batal
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Core Cashbook Register List */}
@@ -370,24 +400,53 @@ export default function BookkeepingView({
           <table className="w-full text-left border-collapse" id="ledger-main-table">
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <th className="py-3 px-4 text-center w-12" id="th-ledger-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={filteredBukuKas.length > 0 && selectedBookkeepingIds.length === filteredBukuKas.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedBookkeepingIds(filteredBukuKas.map(b => b.id));
+                      } else {
+                        setSelectedBookkeepingIds([]);
+                      }
+                    }}
+                    className="rounded border-slate-350 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer accent-blue-600"
+                  />
+                </th>
                 <th className="py-3 px-6">ID Transaksi</th>
                 <th className="py-3 px-6">Tanggal Buku</th>
                 <th className="py-3 px-5">Kategori Bidang</th>
                 <th className="py-3 px-6">Penjelasan Transaksi</th>
                 <th className="py-3 px-5 text-center">Jenis Kas</th>
                 <th className="py-3 px-6 text-right font-mono">Nominal</th>
+                <th className="py-3 px-6 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
               {filteredBukuKas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold">
+                  <td colSpan={8} className="py-8 text-center text-slate-400 font-semibold animate-pulse">
                     Tidak ditemukan log kasir yang sesuai dengan pencarian.
                   </td>
                 </tr>
               ) : (
                 filteredBukuKas.map((item) => (
                   <tr className="hover:bg-slate-50/50 transition-colors" key={item.id} id={`kas-row-${item.id}`}>
+                    <td className="py-3.5 px-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedBookkeepingIds.includes(item.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedBookkeepingIds(prev => [...prev, item.id]);
+                          } else {
+                            setSelectedBookkeepingIds(prev => prev.filter(id => id !== item.id));
+                          }
+                        }}
+                        className="rounded border-slate-350 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer accent-blue-600"
+                      />
+                    </td>
                     <td className="py-3.5 px-6 font-mono font-bold text-slate-700 text-[10.5px]">
                       {item.id}
                     </td>
@@ -422,6 +481,36 @@ export default function BookkeepingView({
                     </td>
                     <td className={`py-3.5 px-6 text-right font-mono font-bold ${item.type === "Income" ? "text-emerald-600" : "text-rose-600"}`}>
                       {item.type === "Income" ? "+" : "-"}{formatIDR(item.amount)}
+                    </td>
+                    <td className="py-3.5 px-6 text-center">
+                      {confirmDeleteId === item.id ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => {
+                              onDeleteBookkeeping(item.id);
+                              setConfirmDeleteId(null);
+                              notify(`Log kas #${item.id} berhasil terhapus secara permanen.`, "success");
+                            }}
+                            className="p-1 px-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-bold text-[9px] cursor-pointer"
+                          >
+                            Ya
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="p-1 px-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded font-bold text-[9px] cursor-pointer"
+                          >
+                            Batal
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(item.id)}
+                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-bold rounded transition-colors cursor-pointer"
+                          title="Hapus Catatan Buku Kas"
+                        >
+                          Hapus
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -547,6 +636,47 @@ export default function BookkeepingView({
                 </div>
               )}
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Bookkeeping Confirmation Modal */}
+      {isBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150" id="bulk-kas-delete-modal-overlay">
+          <div className="bg-white dark:bg-[#151e2e] w-full max-w-md p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl">
+            <div className="flex items-center gap-3 text-rose-600 mb-4">
+              <AlertCircle className="w-6 h-6 shrink-0 animate-bounce" />
+              <h3 className="text-sm font-bold uppercase tracking-wider font-sans">
+                Hapus Massal Catatan Buku Kas
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-350 leading-relaxed mb-6">
+              Apakah Anda benar-benar yakin ingin menghapus secara permanen sebanyak <strong className="text-rose-650 font-bold">{selectedBookkeepingIds.length}</strong> catatan buku kas terpilih?
+              <br /><br />
+              Tindakan ini bersifat permanen dan tidak dapat dibatalkan. Angka saldo kas masuk dan kas keluar Anda akan disesuaikan kembali secara otomatis.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirm(false)}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl cursor-pointer transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteBookkeeping(selectedBookkeepingIds);
+                  setSelectedBookkeepingIds([]);
+                  setIsBulkDeleteConfirm(false);
+                  notify("Seluruh catatan buku kas terpilih berhasil dihapus massal.", "success");
+                }}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-all hover:scale-[1.01]"
+                id="bulk-delete-kas-confirm-btn"
+              >
+                Ya, Hapus Massal
+              </button>
             </div>
           </div>
         </div>

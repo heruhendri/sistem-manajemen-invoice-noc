@@ -56,6 +56,9 @@ export default function CustomerPortalView({
   const [paymentMethod, setPaymentMethod] = useState<"QRIS" | "VA_MANDIRI" | "VA_BCA">("QRIS");
   const [reconciliationLog, setReconciliationLog] = useState<string[]>([]);
   const [activeCoreTab, setActiveCoreTab] = useState<"pppoe_active" | "pppoe_offline" | "hotspot">("pppoe_active");
+  const [enableQuickDemo, setEnableQuickDemo] = useState<boolean>(() => {
+    return localStorage.getItem("noc_portal_enable_quick_demo") !== "false";
+  });
 
   // Find currently simulated client
   const simulatedClient = useMemo(() => {
@@ -240,32 +243,51 @@ export default function CustomerPortalView({
           </form>
 
           {/* Quick Sandbox Override bypass launcher list */}
-          <div className="border-t border-slate-150 dark:border-slate-800 pt-4 space-y-2" id="sandbox-quick-links">
-            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">
-              Akses Cepat Demo Akun (Bypass 1-Klik):
-            </h4>
-            <div className="grid grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
-              {clients.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => handleLogin(undefined, c.id)}
-                  type="button"
-                  className="w-full text-left p-2.5 bg-slate-50 dark:bg-slate-900 hover:bg-blue-50/70 dark:hover:bg-blue-950/20 border border-slate-200 dark:border-slate-850 rounded-lg flex items-center justify-between hover:border-blue-300 dark:hover:border-blue-900/60 transition-all cursor-pointer text-[10.5px]"
-                  id={`quick-login-${c.id}`}
-                >
-                  <div className="text-left">
-                    <span className="font-bold text-slate-800 dark:text-slate-200 block">{c.company}</span>
-                    <span className="text-[9px] text-slate-400 font-mono block">PIC: {c.name} | {c.email}</span>
-                  </div>
-                  <div className="text-right space-y-0.5 shrink-0 pl-2">
-                    <span className="inline-block px-1.5 py-0.5 text-[8.5px] font-mono leading-none bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded font-bold">
-                      {c.id}
-                    </span>
-                    <span className="block text-[8px] text-slate-400 font-mono">{c.phone}</span>
-                  </div>
-                </button>
-              ))}
+          <div className="border-t border-slate-150 dark:border-slate-800 pt-4 space-y-3.5" id="sandbox-quick-links">
+            <div className="flex items-center justify-between">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                Akses Cepat Demo Akun (Bypass):
+              </h4>
+              <div 
+                className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono font-extrabold flex items-center gap-1 border cursor-help ${
+                  enableQuickDemo 
+                    ? "bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-200/40 dark:border-green-900/40" 
+                    : "bg-rose-50 dark:bg-rose-950/20 text-rose-705 dark:text-rose-400 border-rose-200/40 dark:border-rose-900/40"
+                }`}
+                title="Konfigurasi bypass ini dikunci & hanya dapat diatur melalui dashboard admin"
+              >
+                <ShieldCheck className="w-3 h-3 text-slate-400" />
+                {enableQuickDemo ? "🟢 AKTIF" : "🔴 NON-AKTIF"}
+              </div>
             </div>
+            {enableQuickDemo ? (
+              <div className="grid grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                {clients.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => handleLogin(undefined, c.id)}
+                    type="button"
+                    className="w-full text-left p-2.5 bg-slate-50 dark:bg-slate-900 hover:bg-blue-50/70 dark:hover:bg-blue-950/20 border border-slate-200 dark:border-slate-850 rounded-lg flex items-center justify-between hover:border-blue-300 dark:hover:border-blue-900/60 transition-all cursor-pointer text-[10.5px]"
+                    id={`quick-login-${c.id}`}
+                  >
+                    <div className="text-left">
+                      <span className="font-bold text-slate-800 dark:text-slate-200 block">{c.company}</span>
+                      <span className="text-[9px] text-slate-400 font-mono block">PIC: {c.name} | {c.email}</span>
+                    </div>
+                    <div className="text-right space-y-0.5 shrink-0 pl-2">
+                      <span className="inline-block px-1.5 py-0.5 text-[8.5px] font-mono leading-none bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded font-bold">
+                        {c.id}
+                      </span>
+                      <span className="block text-[8px] text-slate-400 font-mono">{c.phone}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="p-3 text-center text-[10.5px] text-slate-450 dark:text-slate-500 italic bg-slate-50 dark:bg-slate-600 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl leading-relaxed">
+                Fitur akses cepat dinonaktifkan oleh administrator. Silakan lakukan pencarian data kontak di atas untuk masuk ke portal.
+              </div>
+            )}
           </div>
         </div>
       </div>

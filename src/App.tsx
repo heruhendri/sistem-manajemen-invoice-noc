@@ -10,6 +10,7 @@ import CustomerPortalView from "./components/CustomerPortalView";
 import ServiceCategoriesView from "./components/ServiceCategoriesView";
 import BizProfileView from "./components/BizProfileView";
 import NetworkMonitoringView from "./components/NetworkMonitoringView";
+import MarketingCatalogView from "./components/MarketingCatalogView";
 
 import { 
   Building2, 
@@ -30,16 +31,38 @@ import {
   X,
   Database,
   Wifi,
-  Server
+  Server,
+  LogOut,
+  Eye,
+  EyeOff,
+  Globe,
+  ShoppingBag,
+  Home
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>("dashboard");
+  // Custom Virtual Route selection logic on compile load
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const path = (window.location.pathname + window.location.hash).toLowerCase();
+    if (path.includes("pelanggan") || path.includes("customer")) {
+      return "customer-portal";
+    }
+    return "marketing-ecatalog"; // Default home view: Live E-Catalog & Public Frontend
+  });
+  
   const [loading, setLoading] = useState<boolean>(true);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return localStorage.getItem("noc_billing_dark_mode") === "true";
   });
+
+  // Admin login states
+  const [adminAuthenticated, setAdminAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem("noc_admin_logged_in") === "true";
+  });
+  const [adminInputUser, setAdminInputUser] = useState("");
+  const [adminInputPass, setAdminInputPass] = useState("");
+  const [showAdminPass, setShowAdminPass] = useState(false);
 
   // States
   const [clients, setClients] = useState<Client[]>([]);
@@ -190,8 +213,9 @@ export default function App() {
     syncState(updated, updatedInvoices, bookkeeping, templates);
   };
 
-  const handleDeleteClient = (id: string) => {
-    const updated = clients.filter(c => c.id !== id);
+  const handleDeleteClient = (idOrIds: string | string[]) => {
+    const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+    const updated = clients.filter(c => !ids.includes(c.id));
     setClients(updated);
     syncState(updated, invoices, bookkeeping, templates);
   };
@@ -244,6 +268,13 @@ export default function App() {
     syncState(clients, invoices, updated, templates);
   };
 
+  const handleDeleteBookkeeping = (idOrIds: string | string[]) => {
+    const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+    const updated = bookkeeping.filter(b => !ids.includes(b.id));
+    setBookkeeping(updated);
+    syncState(clients, invoices, updated, templates);
+  };
+
   // 4. Template mutations
   const handleUpdateTemplate = (template: NotificationTemplate) => {
     const updated = templates.map(t => t.id === template.id ? template : t);
@@ -255,6 +286,29 @@ export default function App() {
   const handleSetWhatsappConnected = (connected: boolean) => {
     setWhatsappConnected(connected);
     localStorage.setItem("noc_billing_whatsapp_connected", String(connected));
+  };
+
+  const handleResetToEmpty = () => {
+    setClients([]);
+    setInvoices([]);
+    setBookkeeping([]);
+    syncState([], [], [], templates);
+    triggerToast("Database simulasi berhasil dibersihkan! Sistem beralih ke mode operasi riil.", "success");
+  };
+
+  const handleRestoreFullDb = (imported: any) => {
+    const rC = imported.clients || [];
+    const rI = imported.invoices || [];
+    const rB = imported.bookkeeping || [];
+    const rT = imported.templates || templates;
+
+    setClients(rC);
+    setInvoices(rI);
+    setBookkeeping(rB);
+    if (imported.templates) setTemplates(rT);
+
+    syncState(rC, rI, rB, rT);
+    triggerToast("Database SLA NOC berhasil dipulihkan dari file backup JSON!", "success");
   };
 
   if (loading) {
@@ -269,6 +323,65 @@ export default function App() {
   return (
     <div className={`min-h-screen ${darkMode ? "dark bg-[#090d16] text-white" : "bg-slate-50 text-slate-800"} flex flex-col font-sans antialiased`} id="main-app">
       
+      {/* ===============================================================
+          NEW: VIRTUAL ROUTER & ADDRESS BAR CONTROLLER 
+          =============================================================== */}
+      <div className="bg-slate-100 dark:bg-[#070b13] border-b border-slate-200 dark:border-slate-800 text-xs py-2 px-4 shadow-inner flex flex-col md:flex-row gap-3 items-center justify-between select-none shrink-0" id="virtual-route-bar-simulator">
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-700"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-700"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-700"></span>
+          </div>
+          
+          <div className="bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-850 px-3 py-1 rounded-lg font-mono text-[10.5px] text-slate-550 flex items-center gap-1.5 w-64 md:w-80 shadow-xs">
+            <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span className="text-slate-400">localhost:3000</span>
+            <strong className="text-blue-650 dark:text-blue-400 tracking-tight block truncate">
+              {activeTab === "marketing-ecatalog" ? "/" : activeTab === "customer-portal" ? "/pelanggan" : `/admin/${activeTab}`}
+            </strong>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 text-[9px] font-mono font-bold uppercase tracking-wider" id="virtual-route-switches">
+          <button
+            onClick={() => {
+              setActiveTab("marketing-ecatalog");
+              triggerToast("Dialing domain: (/) - Public Landing & E-Katalog", "info");
+            }}
+            className={`px-3 py-1 rounded border cursor-pointer transition-colors ${activeTab === "marketing-ecatalog" ? "bg-blue-600 border-blue-600 text-white font-extrabold shadow-sm" : "bg-white dark:bg-[#0d1527] hover:bg-slate-100 text-slate-500 border-slate-200 dark:border-slate-800"}`}
+            id="bar-route-btn-home"
+          >
+            🏠 Home (/)
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("customer-portal");
+              triggerToast("Dialing domain: /pelanggan - Portal Pelanggan Terintegrasi", "info");
+            }}
+            className={`px-3 py-1 rounded border cursor-pointer transition-colors ${activeTab === "customer-portal" ? "bg-blue-600 border-blue-600 text-white font-extrabold shadow-sm" : "bg-white dark:bg-[#0d1527] hover:bg-slate-100 text-slate-500 border-slate-200 dark:border-slate-800"}`}
+            id="bar-route-btn-cust"
+          >
+            👤 Client Portal (/pelanggan)
+          </button>
+          <button
+            onClick={() => {
+              if (adminAuthenticated) {
+                setActiveTab("dashboard");
+                triggerToast("Dialing domain: /admin - Secure NOC Admin Console", "info");
+              } else {
+                setActiveTab("dashboard");
+                triggerToast("Authentication Required for /admin", "warning");
+              }
+            }}
+            className={`px-3 py-1 rounded border cursor-pointer transition-colors ${!["marketing-ecatalog", "customer-portal"].includes(activeTab) ? "bg-blue-600 border-blue-600 text-white font-extrabold shadow-sm" : "bg-white dark:bg-[#0d1527] hover:bg-slate-100 text-slate-500 border-slate-200 dark:border-slate-800"}`}
+            id="bar-route-btn-admin"
+          >
+            🔐 Secured Admin (/admin)
+          </button>
+        </div>
+      </div>
+
       {/* Top Professional Global Header bar: Sticky of 16 (h-16) */}
       <header className="bg-white dark:bg-[#0d1527] border-b border-slate-200 dark:border-slate-800 text-slate-950 dark:text-white shrink-0 shadow-xs sticky top-0 z-50 transition-colors" id="global-nav">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between" id="header-content-wrap">
@@ -332,166 +445,348 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Responsive Grid Layout containing Side Navigation and tabs core views */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6" id="body-grid">
-        
-        {/* Navigation panel columns: 3/12 cols - Sticky Layout in Desktop and Mobile-friendly scroll */}
-        <div className="lg:col-span-3 sticky top-[68px] lg:top-[88px] z-45 flex flex-col gap-4 self-start bg-slate-50 dark:bg-[#090d16] py-2 lg:py-0" id="sidebar-wrapper">
-          <nav className="space-y-1.5 flex flex-row lg:flex-col overflow-x-auto lg:overflow-visible pb-1.5 lg:pb-0 scrollbar-none gap-2 lg:gap-0 select-none w-full border-b border-slate-200 lg:border-b-0 pb-2 lg:pb-0" id="sidebar-rail">
-            {[
-              { id: "dashboard", label: "Dashboard & Laba Rugi", icon: LayoutDashboard },
-              { id: "clients", label: "Manajemen Pelanggan", icon: Users },
-              { id: "service-categories", label: "Kategori Layanan", icon: Database },
-              { id: "invoices", label: "Manajemen Invoice", icon: FileText },
-              { id: "integration", label: "Integrasi WA & Templat", icon: Settings },
-              { id: "bookkeeping", label: "Buku Kas & Rekonsiliasi", icon: Cpu },
-              { id: "router-monitoring", label: "Monitoring Klien (Router)", icon: Activity },
-              { id: "customer-portal", label: "Portal Pelanggan (Simulasi)", icon: UserCheck2 },
-              { id: "biz-profile", label: "Profil & Info Usaha NOC", icon: Building2 },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-auto lg:w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-2.5 shrink-0 cursor-pointer select-none whitespace-nowrap lg:whitespace-normal ${
-                    isActive 
-                      ? "bg-blue-600 text-white font-extrabold shadow-md border-transparent" 
-                      : "bg-white dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-slate-200/60 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                  id={`sidebar-tab-${tab.id}`}
+      {/* ===============================================================
+          MAIN RENDER INTERNALS: PUBLIC vs ADMINISTRATOR ROUTING 
+          =============================================================== */}
+      {(() => {
+        const isPublicView = ["marketing-ecatalog", "customer-portal"].includes(activeTab);
+
+        // PUBLIC ACCESS CANVAS LAYER (No Admin Sidebar, full screen modern visual canvas)
+        if (isPublicView) {
+          return (
+            <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col" id="public-routing-canvas">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeTab}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="space-y-6 flex-1 flex flex-col"
                 >
-                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-white" : "text-slate-400"}`} />
-                  <span>{tab.label}</span>
+                  {activeTab === "marketing-ecatalog" && (
+                    <MarketingCatalogView 
+                      onNavigate={setActiveTab} 
+                      bizProfile={bizProfile} 
+                      clients={clients} 
+                    />
+                  )}
+
+                  {activeTab === "customer-portal" && (
+                    <CustomerPortalView 
+                      clients={clients}
+                      invoices={invoices}
+                      onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
+                      onAddBookkeeping={handleAddBookkeeping}
+                      triggerToast={triggerToast}
+                      bizProfile={bizProfile}
+                    />
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          );
+        }
+
+        // SECURED ADMIN LOGIN BARRIER
+        if (!adminAuthenticated) {
+          return (
+            <div className="flex-1 max-w-lg w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col justify-center items-center py-12" id="admin-login-barrier">
+              <div className="bg-white dark:bg-[#0d1527] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 w-full shadow-2xl space-y-6 text-center select-none animate-in fade-in duration-300">
+                
+                {/* Header banner lock */}
+                <div className="space-y-4">
+                  <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/20 rounded-full flex items-center justify-center text-[#2563eb] dark:text-blue-400 mx-auto border border-blue-100 dark:border-blue-900/40 animate-pulse">
+                    <Lock className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-mono font-extrabold tracking-widest text-[#2563eb] dark:text-blue-400 uppercase bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded border border-blue-100 inline-block">
+                      SECURITY PROTOCOL AES-256
+                    </span>
+                    <h2 className="text-md sm:text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider font-sans">
+                      MASUK SECURE CONSOLE NOC
+                    </h2>
+                    <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed font-medium">
+                      Masukkan kunci autentikasi administrator untuk mengakses dashboard utama, pembukuan keuangan laba-rugi, dan terminal API MikroTik.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Login Form */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (adminInputUser === "admin" && adminInputPass === "admin") {
+                      setAdminAuthenticated(true);
+                      localStorage.setItem("noc_admin_logged_in", "true");
+                      triggerToast("Autentikasi Sukses! Dekripsi database diizinkan.", "success");
+                    } else {
+                      triggerToast("Username atau Password Salah! Enkripsi ditolak.", "error");
+                    }
+                  }}
+                  className="space-y-4 text-left text-xs"
+                  id="admin-form-login"
+                >
+                  <div className="space-y-1">
+                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide animate-pulse">ID Username Admin</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Masukkan username (contoh: admin)"
+                      value={adminInputUser}
+                      onChange={(e) => setAdminInputUser(e.target.value)}
+                      className="w-full text-xs p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
+                      id="admin-login-usr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">Password Enkripsi</label>
+                    <div className="relative">
+                      <input
+                        type={showAdminPass ? "text" : "password"}
+                        required
+                        placeholder="Masukkan password (contoh: admin)"
+                        value={adminInputPass}
+                        onChange={(e) => setAdminInputPass(e.target.value)}
+                        className="w-full text-xs p-2.5 pr-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
+                        id="admin-login-pass"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAdminPass(!showAdminPass)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-450 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer bg-transparent border-0"
+                        id="admin-pass-toggle"
+                      >
+                        {showAdminPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-md uppercase tracking-wider font-mono inline-flex items-center justify-center gap-1.5 shadow-sm"
+                    id="btn-admin-submit-auth"
+                  >
+                    <Lock className="w-3.5 h-3.5" /> Autentikasi Enkripsi Console
+                  </button>
+                </form>
+
+                {/* Bypass triggers */}
+                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
+                  <div className="flex items-center justify-center gap-1.5 text-[10.5px]">
+                    <span className="text-slate-400 font-semibold font-sans">Uji Coba Cepat:</span>
+                    <strong className="text-[#2563eb] bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded font-mono font-bold font-semibold">admin / admin</strong>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 text-[9.5px] font-mono font-bold uppercase tracking-wider">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminAuthenticated(true);
+                        localStorage.setItem("noc_admin_logged_in", "true");
+                        triggerToast("Akses Terbuka via Bypass Pengembang!", "success");
+                      }}
+                      className="py-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer transition-colors font-bold uppercase block text-center shadow-xs"
+                      id="btn-admin-bypass"
+                    >
+                      ⚡ Bypass Akses Instan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab("marketing-ecatalog");
+                      }}
+                      className="py-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer transition-colors font-bold uppercase block text-center shadow-xs"
+                    >
+                      🏠 Portal Publik (/)
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          );
+        }
+
+        // STANDARD FULL ADMINISTRATOR CONSOLE (With sidebar switcher tabs)
+        return (
+          <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300" id="body-grid">
+            
+            {/* Navigation Left column */}
+            <div className="lg:col-span-3 sticky top-[68px] lg:top-[124px] z-45 flex flex-col gap-4 self-start bg-transparent py-2 lg:py-0" id="sidebar-wrapper">
+              <nav className="space-y-1.5 flex flex-row lg:flex-col overflow-x-auto lg:overflow-visible pb-1.5 lg:pb-0 scrollbar-none gap-2 lg:gap-0 select-none w-full border-b border-slate-200 lg:border-b-0 pb-2 lg:pb-0" id="sidebar-rail">
+                {[
+                  { id: "dashboard", label: "Dashboard & Laba Rugi", icon: LayoutDashboard },
+                  { id: "clients", label: "Manajemen Pelanggan", icon: Users },
+                  { id: "service-categories", label: "Kategori Layanan", icon: Database },
+                  { id: "invoices", label: "Manajemen Invoice", icon: FileText },
+                  { id: "integration", label: "Integrasi WA & Templat", icon: Settings },
+                  { id: "bookkeeping", label: "Buku Kas & Rekonsiliasi", icon: Cpu },
+                  { id: "router-monitoring", label: "Monitoring Klien (Router)", icon: Activity },
+                  { id: "biz-profile", label: "Profil & Info Usaha NOC", icon: Building2 },
+                ].map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`w-auto lg:w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-2.5 shrink-0 cursor-pointer select-none whitespace-nowrap lg:whitespace-normal ${
+                        isActive 
+                          ? "bg-[#2563eb] text-white font-extrabold shadow-md border-transparent" 
+                          : "bg-white dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-slate-200/60 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                      id={`sidebar-tab-${tab.id}`}
+                    >
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-white" : "text-slate-400"}`} />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              {/* Admin Profile Footer with interactive LOGOUT button */}
+              <div className="hidden lg:flex p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/40 items-center justify-between gap-3 mt-auto shadow-xs animate-in slide-in-from-left duration-250" id="sidebar-profile">
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="w-9 h-9 rounded-full bg-[#2563eb] flex items-center justify-center font-bold text-white shadow-sm shrink-0">
+                    AD
+                  </div>
+                  <div className="overflow-hidden bg-transparent">
+                    <p className="text-xs font-semibold text-slate-850 dark:text-slate-250 truncate">Admin NOC</p>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold truncate leading-none mt-0.5">Manager Plan</p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminAuthenticated(false);
+                    localStorage.setItem("noc_admin_logged_in", "false");
+                    setActiveTab("marketing-ecatalog");
+                    triggerToast("Sukses Logout dari Secure Console. Enkripsi Terdistribusi.", "info");
+                  }}
+                  className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-400 hover:text-rose-500 rounded bg-transparent cursor-pointer transition-colors"
+                  title="Logout Administrator Panel Securely"
+                  id="admin-logout-btn"
+                >
+                  <LogOut className="w-4.5 h-4.5" />
                 </button>
-              );
-            })}
-          </nav>
+              </div>
 
-          {/* Admin Profile Footer segment from design theme */}
-          <div className="hidden lg:flex p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/40 items-center gap-3 mt-auto shadow-xs" id="sidebar-profile">
-            <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center font-bold text-white shadow-sm shrink-0">
-              AD
             </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-slate-800 dark:text-slate-250 truncate">Admin NOC</p>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold truncate">Manager Plan</p>
+
+            {/* Main Tabs render space details */}
+            <div className="lg:col-span-9" id="main-content-display">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeTab}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  className="space-y-6"
+                >
+                  {activeTab === "dashboard" && (
+                    <DashboardView 
+                      clients={clients} 
+                      invoices={invoices} 
+                      bookkeeping={bookkeeping} 
+                      onNavigate={setActiveTab}
+                    />
+                  )}
+
+                  {activeTab === "clients" && (
+                    <ClientsView 
+                      clients={clients} 
+                      invoices={invoices}
+                      serviceCategories={serviceCategories}
+                      onAddClient={handleAddClient} 
+                      onUpdateClient={handleUpdateClient} 
+                      onDeleteClient={handleDeleteClient}
+                      onAddCategory={handleAddServiceCategory}
+                      triggerToast={triggerToast}
+                    />
+                  )}
+
+                  {activeTab === "service-categories" && (
+                    <ServiceCategoriesView 
+                      serviceCategories={serviceCategories}
+                      clients={clients}
+                      onAddCategory={handleAddServiceCategory}
+                      onUpdateCategory={handleUpdateServiceCategory}
+                      onDeleteCategory={handleDeleteServiceCategory}
+                      triggerToast={triggerToast}
+                    />
+                  )}
+
+                  {activeTab === "invoices" && (
+                    <InvoicesView 
+                      clients={clients}
+                      invoices={invoices}
+                      templates={templates}
+                      onChangeInvoices={handleChangeInvoices}
+                      onAddBookkeeping={handleAddBookkeeping}
+                      whatsappConnected={whatsappConnected}
+                      onUpdateClient={handleUpdateClient}
+                      triggerToast={triggerToast}
+                      bizProfile={bizProfile}
+                    />
+                  )}
+
+                  {activeTab === "integration" && (
+                    <IntegrationView 
+                      templates={templates}
+                      onUpdateTemplate={handleUpdateTemplate}
+                      whatsappConnected={whatsappConnected}
+                      onSetWhatsappConnected={handleSetWhatsappConnected}
+                      clients={clients}
+                      invoices={invoices}
+                      triggerToast={triggerToast}
+                      onResetData={handleResetToEmpty}
+                      onRestoreData={handleRestoreFullDb}
+                    />
+                  )}
+
+                  {activeTab === "bookkeeping" && (
+                    <BookkeepingView 
+                      bookkeeping={bookkeeping}
+                      invoices={invoices}
+                      clients={clients}
+                      onAddBookkeeping={handleAddBookkeeping}
+                      onDeleteBookkeeping={handleDeleteBookkeeping}
+                      onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
+                      triggerToast={triggerToast}
+                    />
+                  )}
+
+                  {activeTab === "router-monitoring" && (
+                    <NetworkMonitoringView 
+                      clients={clients}
+                      triggerToast={triggerToast}
+                    />
+                  )}
+
+                  {activeTab === "biz-profile" && (
+                    <BizProfileView 
+                      bizProfile={bizProfile}
+                      onUpdateProfile={handleUpdateBizProfile}
+                      triggerToast={triggerToast}
+                      onResetData={handleResetToEmpty}
+                      onRestoreData={handleRestoreFullDb}
+                      clients={clients}
+                      invoices={invoices}
+                      bookkeeping={bookkeeping}
+                      templates={templates}
+                    />
+                  )}
+                </motion.div>
+              </AnimatePresence>
             </div>
+
           </div>
-        </div>
-
-        {/* View Switch core column with fluid transitions */}
-        <div className="lg:col-span-9" id="main-content-display">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.15, ease: "easeOut" }}
-              className="space-y-6"
-            >
-              {activeTab === "dashboard" && (
-                <DashboardView 
-                  clients={clients} 
-                  invoices={invoices} 
-                  bookkeeping={bookkeeping} 
-                  onNavigate={setActiveTab}
-                />
-              )}
-
-              {activeTab === "clients" && (
-                <ClientsView 
-                  clients={clients} 
-                  invoices={invoices}
-                  serviceCategories={serviceCategories}
-                  onAddClient={handleAddClient} 
-                  onUpdateClient={handleUpdateClient} 
-                  onDeleteClient={handleDeleteClient}
-                  onAddCategory={handleAddServiceCategory}
-                  triggerToast={triggerToast}
-                />
-              )}
-
-              {activeTab === "service-categories" && (
-                <ServiceCategoriesView 
-                  serviceCategories={serviceCategories}
-                  clients={clients}
-                  onAddCategory={handleAddServiceCategory}
-                  onUpdateCategory={handleUpdateServiceCategory}
-                  onDeleteCategory={handleDeleteServiceCategory}
-                  triggerToast={triggerToast}
-                />
-              )}
-
-              {activeTab === "invoices" && (
-                <InvoicesView 
-                  clients={clients}
-                  invoices={invoices}
-                  templates={templates}
-                  onChangeInvoices={handleChangeInvoices}
-                  onAddBookkeeping={handleAddBookkeeping}
-                  whatsappConnected={whatsappConnected}
-                  onUpdateClient={handleUpdateClient}
-                  triggerToast={triggerToast}
-                  bizProfile={bizProfile}
-                />
-              )}
-
-              {activeTab === "integration" && (
-                <IntegrationView 
-                  templates={templates}
-                  onUpdateTemplate={handleUpdateTemplate}
-                  whatsappConnected={whatsappConnected}
-                  onSetWhatsappConnected={handleSetWhatsappConnected}
-                  clients={clients}
-                  invoices={invoices}
-                  triggerToast={triggerToast}
-                />
-              )}
-
-              {activeTab === "bookkeeping" && (
-                <BookkeepingView 
-                  bookkeeping={bookkeeping}
-                  invoices={invoices}
-                  clients={clients}
-                  onAddBookkeeping={handleAddBookkeeping}
-                  onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
-                  triggerToast={triggerToast}
-                />
-              )}
-
-              {activeTab === "router-monitoring" && (
-                <NetworkMonitoringView 
-                  clients={clients}
-                  triggerToast={triggerToast}
-                />
-              )}
-
-              {activeTab === "customer-portal" && (
-                <CustomerPortalView 
-                  clients={clients}
-                  invoices={invoices}
-                  onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
-                  onAddBookkeeping={handleAddBookkeeping}
-                  triggerToast={triggerToast}
-                  bizProfile={bizProfile}
-                />
-              )}
-
-              {activeTab === "biz-profile" && (
-                <BizProfileView 
-                  bizProfile={bizProfile}
-                  onUpdateProfile={handleUpdateBizProfile}
-                  triggerToast={triggerToast}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-
-      </div>
+        );
+      })()}
 
       {/* Global Human-literal footer */}
       <footer className="bg-white border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-400 shrink-0 font-sans" id="global-footer">
