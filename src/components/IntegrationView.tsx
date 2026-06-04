@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { NotificationTemplate, Client, Invoice } from "../types";
 import { 
   QrCode, 
@@ -86,6 +86,7 @@ export default function IntegrationView({
     whatsappConnected ? "completed" : "none"
   );
   const [phoneNumber, setPhoneNumber] = useState(whatsappConnected ? "081234567890" : "");
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
 
   // Restore Database State Confirm inside Integration
   const [showRestoreConfirm, setShowRestoreConfirm] = useState<any | null>(null);
@@ -135,27 +136,49 @@ export default function IntegrationView({
   }, [currentTemplate]);
 
   // Trigger QR render sequence
-  const handleStartLinking = (e: React.FormEvent) => {
+  const handleStartLinking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phoneNumber) {
       notify("Harap masukkan nomor WhatsApp yang ingin disinkronisasikan terlebih dahulu.", "warning");
       return;
     }
     setPairingProgress("initializing");
-    setTimeout(() => {
-      setPairingProgress("ready");
-    }, 1000);
+    
+    try {
+      // Panggil API backend asli untuk mendapatkan QR
+      const response = await fetch('/api/whatsapp/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phoneNumber })
+      });
+      const data = await response.json();
+      if (data.qr) {
+        setQrCodeUrl(data.qr);
+        setPairingProgress("ready");
+      }
+    } catch (err) {
+      notify("Gagal menghubungi server WhatsApp Gateway.", "error");
+      setPairingProgress("none");
+    }
   };
 
-  // Simulating scanner match success
-  const handleConfirmPairing = () => {
-    setPairingProgress("connecting");
-    setTimeout(() => {
-      setPairingProgress("completed");
-      onSetWhatsappConnected(true);
-      notify("WhatsApp Server terhubung sukses!", "success");
-    }, 1500);
-  };
+  // Polling status koneksi riil
+  useEffect(() => {
+    let interval: any;
+    if (pairingProgress === "ready") {
+      interval = setInterval(async () => {
+        const res = await fetch('/api/whatsapp/status');
+        const status = await res.json();
+        if (status.connected) {
+          setPairingProgress("completed");
+          onSetWhatsappConnected(true);
+          notify("WhatsApp Gateway Berhasil Terhubung!", "success");
+          clearInterval(interval);
+        }
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [pairingProgress]);
 
   // Terminate whatsapp link
   const handleDisconnect = () => {
@@ -1528,41 +1551,20 @@ export default function IntegrationView({
                     <div className="absolute left-1/2 -translate-x-1/2 w-full h-[2px] bg-blue-500 shadow-md animate-[bounce_3s_infinite]" id="scanning-laser-line"></div>
                     
                     {/* Actual QR SVG */}
-                    <svg width="100%" height="100%" viewBox="0 0 100 100" className="opacity-80">
-                      <rect x="0" y="0" width="100" height="100" fill="#ffffff" />
-                      <rect x="5" y="5" width="22" height="22" fill="#030" stroke="#000" strokeWidth="2" />
-                      <rect x="10" y="10" width="12" height="12" fill="#fff" />
-                      <rect x="73" y="5" width="22" height="22" fill="#030" stroke="#000" strokeWidth="2" />
-                      <rect x="78" y="10" width="12" height="12" fill="#fff" />
-                      <rect x="5" y="73" width="22" height="22" fill="#030" stroke="#000" strokeWidth="2" />
-                      <rect x="10" y="78" width="12" height="12" fill="#fff" />
-
-                      {/* QR Blocks */}
-                      <rect x="35" y="10" width="10" height="20" fill="#000" />
-                      <rect x="55" y="8" width="15" height="12" fill="#000" />
-                      <rect x="40" y="35" width="20" height="20" fill="#000" />
-                      <rect x="15" y="45" width="12" height="18" fill="#000" />
-                      <rect x="70" y="35" width="18" height="18" fill="#000" />
-                      <rect x="35" y="70" width="25" height="15" fill="#000" />
-                      <rect x="70" y="65" width="20" height="20" fill="#000" />
-                      {/* Mock phone in the center */}
-                      <rect x="44" y="44" width="12" height="12" fill="#1e3a8a" rx="2" />
-                    </svg>
+                    {qrCodeUrl ? (
+                      <img src={qrCodeUrl} alt="WhatsApp QR Code" className="w-full h-full" />
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <RefreshCw className="w-8 h-8 text-slate-300 animate-spin" />
+                        <span className="text-[10px] text-slate-400 mt-2">Menunggu QR...</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="text-xs space-y-1.5" id="scan-instructions-meta">
                     <p className="font-semibold text-slate-800">Pindai QR Code di Atas</p>
                     <p className="text-[11px] text-slate-400 font-sans">Buka WhatsApp Link Device di HP, arahkan kamera ke bar screen ini.</p>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={handleConfirmPairing}
-                    className="px-5 py-2 w-full bg-slate-900 border border-slate-950 hover:bg-slate-950 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
-                    id="btn-simulate-scanned"
-                  >
-                    ✓ Konfirmasi Scan Sukses (Simulasi Terhubung)
-                  </button>
                 </div>
               )}
 

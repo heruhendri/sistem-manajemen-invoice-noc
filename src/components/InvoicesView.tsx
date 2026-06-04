@@ -265,52 +265,42 @@ export default function InvoicesView({
   };
 
   // Process mock send
-  const handleExecuteSend = () => {
+  const handleExecuteSend = async () => {
     if (!activeSendWizard) return;
     const { invoice, client } = activeSendWizard;
     const template = templates.find(t => t.id === selectedTemplateId);
     if (!template) return;
 
     setIsSendingComm(true);
-    setSendLogs(["Menghubungkan ke WhatsApp API gateway..."]);
+    setSendLogs(["Mengirim request ke API Gateway produksi..."]);
 
-    setTimeout(() => {
-      if (template.channel === "whatsapp" && !whatsappConnected) {
-        setSendLogs(l => [
-          ...l,
-          "⚠️ Server warning: Sesi WhatsApp belum di-scan di tab Integrasi QR.",
-          "Mencoba mengirim pesan via fallback server relay..."
-        ]);
+    try {
+      const response = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: client.phone,
+          message: renderTemplatePreview(template.content, invoice, client),
+          invoiceId: invoice.id
+        })
+      });
+
+      if (response.ok) {
+        setSendLogs(l => [...l, "✔ Pesan Berhasil Terkirim ke Provider!", "Status: DELIVERED"]);
+        
+        const updatedInvoices = invoices.map(i => 
+          i.id === invoice.id ? { ...i, reminderSentCount: i.reminderSentCount + 1 } : i
+        );
+        onChangeInvoices(updatedInvoices);
+        setMobilePhoneMockupMessage(renderTemplatePreview(template.content, invoice, client));
+      } else {
+        setSendLogs(l => [...l, "❌ Gagal mengirim pesan. Periksa koneksi WhatsApp Anda."]);
       }
-      
-      setTimeout(() => {
-        setSendLogs(l => [
-          ...l, 
-          `Mempersiapkan berkas PDF Resmi Invoice ${invoice.id}...`,
-          `Melampirkan berkas enkripsi aman: ${invoice.id}.pdf...`,
-          `Mengubah placeholder tagihan ${invoice.id}...`,
-          `Mengirim pesan teks & lampiran PDF ke nomor target ${client.phone}...`
-        ]);
-
-        setTimeout(() => {
-          setSendLogs(l => [...l, "✔ Berhasil dikirim dengan lampiran berkas PDF! Status: Delivered (SLA OK)"]);
-          setIsSendingComm(false);
-
-          // Update reminder count on invoice
-          const updatedInvoices = invoices.map(i => {
-            if (i.id === invoice.id) {
-              return { ...i, reminderSentCount: i.reminderSentCount + 1 };
-            }
-            return i;
-          });
-          onChangeInvoices(updatedInvoices);
-
-          // Render on-screen mockup preview
-          const messageCompiled = renderTemplatePreview(template.content, invoice, client);
-          setMobilePhoneMockupMessage(messageCompiled);
-        }, 1200);
-      }, 1000);
-    }, 800);
+    } catch (err) {
+      setSendLogs(l => [...l, "❌ Kesalahan jaringan API Gateway."]);
+    } finally {
+      setIsSendingComm(false);
+    }
   };
 
   // Copy simulated link
