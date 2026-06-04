@@ -36,6 +36,9 @@ interface BizProfileViewProps {
   invoices?: any[];
   bookkeeping?: any[];
   templates?: any[];
+  adminUsername?: string;
+  adminPassword?: string;
+  onUpdateAdminCredentials?: (username: string, pass: string) => void;
 }
 
 export default function BizProfileView({
@@ -47,10 +50,18 @@ export default function BizProfileView({
   clients = [],
   invoices = [],
   bookkeeping = [],
-  templates = []
+  templates = [],
+  adminUsername = "admin",
+  adminPassword = "admin",
+  onUpdateAdminCredentials
 }: BizProfileViewProps) {
   // Tabs for the profile control panel
   const [activeSubTab, setActiveSubTab] = useState<"identity" | "pdf_template" | "payments" | "system">("identity");
+
+  // Credentials change states
+  const [newAdminUsername, setNewAdminUsername] = useState(adminUsername);
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState("");
 
   // Initializing state with defaults if missing
   const [form, setForm] = useState<BizProfile>(() => {
@@ -322,7 +333,7 @@ export default function BizProfileView({
           }`}
         >
           <Database className="w-4 h-4" />
-          4. Kelola & Pembersihan Data
+          4. Ubah Username, Password & Keamanan Sistem
         </button>
       </div>
 
@@ -336,6 +347,7 @@ export default function BizProfileView({
               {activeSubTab === "identity" && "SUNTING IDENTITAS & LOGO USAHA"}
               {activeSubTab === "pdf_template" && "KUSTOMISASI WARNA & FIELD TEMPLAT PDF"}
               {activeSubTab === "payments" && "SUNTING CHANNELS BANK & UPLOAD QRIS STATIS"}
+              {activeSubTab === "system" && "UBAH KREDENSIAL ADMIN & INTEGRITAS DATA"}
             </h3>
             <button
               type="button"
@@ -857,53 +869,88 @@ export default function BizProfileView({
                 <strong>Zona Bahaya NOC Nusantara Admin:</strong> Gunakan menu ini untuk mengosongkan / membersihkan seluruh data simulasi dari instansi agar sistem siap beroperasi penuh pada mode produksi riil, atau kelola pencadangan manual data Anda.
               </div>
 
-              {/* Card 0: Security & Bypass Portal Pelanggan Settings */}
+              {/* Card 0: Ubah Password & Kredensial Admin */}
               <div className="p-4 bg-white dark:bg-[#0d1527] border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
                 <div className="border-b border-slate-200 dark:border-slate-800 pb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-850 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    Keamanan & Akses Cepat Baypas Demo Pelanggan
+                    Ubah Password & Kredensial Admin NOC
                   </span>
-                  <span className="text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 px-2 py-0.5 rounded font-mono font-bold">PORTAL DEMO SECURITY</span>
+                  <span className="text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 px-2 py-0.5 rounded font-mono font-bold">ADMIN SECURITY</span>
                 </div>
                 
-                <p className="text-slate-500 leading-relaxed text-[11.5px]">
-                  Aktifkan atau nonaktifkan daftar klik-masuk demo instan di Portal Pelanggan. Jika akses baypas dinonaktifkan, akun demo pelanggan tidak dapat diakses tanpa pencarian kartu kontak secara manual (untuk keamanan demonstrasi production).
+                <p className="text-slate-500 leading-relaxed text-[11px]">
+                  Demi keamanan operasional riil instansi Anda, silakan ubah ID Username default dan Password rahasia administrator secara mandiri di bawah ini.
                 </p>
 
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div className="space-y-1">
+                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">ID Username Baru</label>
+                    <input
+                      type="text"
+                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
+                      value={newAdminUsername}
+                      onChange={(e) => setNewAdminUsername(e.target.value)}
+                      placeholder="Contoh: admin"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10.5px] font-bold text-slate-405 uppercase font-mono tracking-wide">Password Baru</label>
+                    <input
+                      type="password"
+                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
+                      value={newAdminPassword}
+                      onChange={(e) => setNewAdminPassword(e.target.value)}
+                      placeholder="Masukkan password baru"
+                    />
+                  </div>
+
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="block text-[10.5px] font-bold text-slate-405 uppercase font-mono tracking-wide">Konfirmasi Password Baru</label>
+                    <input
+                      type="password"
+                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
+                      value={confirmAdminPassword}
+                      onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                      placeholder="Konfirmasi password baru"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
                   <button
                     type="button"
                     onClick={() => {
-                      const val = !bypassDemoActive;
-                      setBypassDemoActive(val);
-                      localStorage.setItem("noc_portal_enable_quick_demo", String(val));
-                      notify(val ? "Akses baypas demo pelanggan AKTIF!" : "Akses baypas demo pelanggan DINONAKTIFKAN!", "success");
+                      if (!newAdminUsername.trim()) {
+                        notify("Username tidak boleh kosong!", "error");
+                        return;
+                      }
+                      if (!newAdminPassword) {
+                        notify("Password baru tidak boleh kosong!", "error");
+                        return;
+                      }
+                      if (newAdminPassword !== confirmAdminPassword) {
+                        notify("Konfirmasi password tidak cocok!", "error");
+                        return;
+                      }
+                      if (onUpdateAdminCredentials) {
+                        onUpdateAdminCredentials(newAdminUsername.trim(), newAdminPassword);
+                        setNewAdminPassword("");
+                        setConfirmAdminPassword("");
+                      } else {
+                        // fallback local storage set directly
+                        localStorage.setItem("noc_admin_username", newAdminUsername.trim());
+                        localStorage.setItem("noc_admin_password", newAdminPassword);
+                        notify("Kredensial Admin berhasil disimpan!", "success");
+                        setNewAdminPassword("");
+                        setConfirmAdminPassword("");
+                      }
                     }}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 border ${
-                      bypassDemoActive 
-                        ? "bg-blue-650 hover:bg-blue-700 bg-blue-600 text-white border-blue-600 hover:border-blue-700 shadow-xs" 
-                        : "bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800/80"
-                    }`}
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
                   >
-                    {bypassDemoActive ? (
-                      <>
-                        <span className="w-2 h-2 rounded-full bg-green-400 animate-ping"></span>
-                        Akses Baypas: AKTIF (Akses Demo Diizinkan)
-                      </>
-                    ) : (
-                      <>
-                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                        Akses Baypas: NON-AKTIF (Demo Dikunci)
-                      </>
-                    )}
+                    Simpan Kredensial Admin
                   </button>
-                  
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    {bypassDemoActive 
-                      ? "🟢 Pelanggan saat ini diizinkan mem-baypas login menggunakan daftar sekali klik." 
-                      : "🔴 Pelanggan saat ini dipaksa memasukkan No HP / Email / ID secara manual."}
-                  </span>
                 </div>
               </div>
 
@@ -980,27 +1027,29 @@ export default function BizProfileView({
           )}
 
           {/* Action Trigger Buttons */}
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-6 py-3 bg-teal-650 hover:bg-teal-700 disabled:bg-teal-400 text-white rounded-xl font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-sm text-xs uppercase tracking-wider"
-            >
-              {isSaving ? (
-                <>
-                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Menyimpan...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" /> Simpan Semua Konfigurasi Profil
-                </>
-              )}
-            </button>
-          </div>
+          {activeSubTab !== "system" && (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="px-6 py-3 bg-teal-650 hover:bg-teal-700 disabled:bg-teal-400 text-white rounded-xl font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-sm text-xs uppercase tracking-wider"
+              >
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Menyimpan...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" /> Simpan Semua Konfigurasi Profil
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </form>
 
         {/* Right Column: Live Header / Dynamic Invoice Design PDF Mockup Preview (5 cols) */}

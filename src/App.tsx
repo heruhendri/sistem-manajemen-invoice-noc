@@ -42,18 +42,29 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 
 export default function App() {
-  // Custom Virtual Route selection logic on compile load
+  // Default to marketing-ecatalog (E-Catalog)
   const [activeTab, setActiveTab] = useState<string>(() => {
     const path = (window.location.pathname + window.location.hash).toLowerCase();
+    if (path.includes("admin")) {
+      return "dashboard";
+    }
     if (path.includes("pelanggan") || path.includes("customer")) {
       return "customer-portal";
     }
-    return "marketing-ecatalog"; // Default home view: Live E-Catalog & Public Frontend
+    return "marketing-ecatalog";
   });
   
   const [loading, setLoading] = useState<boolean>(true);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return localStorage.getItem("noc_billing_dark_mode") === "true";
+  });
+
+  // Admin credentials state loaded from localStorage
+  const [adminUsername, setAdminUsername] = useState<string>(() => {
+    return localStorage.getItem("noc_admin_username") || "admin";
+  });
+  const [adminPassword, setAdminPassword] = useState<string>(() => {
+    return localStorage.getItem("noc_admin_password") || "admin";
   });
 
   // Admin login states
@@ -150,6 +161,26 @@ export default function App() {
   // Initial load
   useEffect(() => {
     const data = loadData();
+    
+    // Auto-detect and purge simulated/dummy records on first load of this production version
+    const hasSimulatedRecords = data.invoices.some(inv => inv.clientCompany === "PT Citra Global ISP" || inv.id === "INV-2026-001") ||
+                                data.clients.some(c => c.id === "CLI-001" || c.name === "Budi Hartono") ||
+                                data.bookkeeping.some(b => b.description.includes("PT Citra Global ISP"));
+                                
+    if (hasSimulatedRecords) {
+      data.clients = [];
+      data.invoices = [];
+      data.bookkeeping = [];
+      saveData({
+        clients: [],
+        invoices: [],
+        bookkeeping: [],
+        templates: data.templates,
+        serviceCategories: data.serviceCategories
+      });
+      triggerToast("Database simulasi berhasil dibersihkan otomatis! Sistem beralih ke mode operasi riil.", "success");
+    }
+
     setClients(data.clients);
     setInvoices(data.invoices);
     setTemplates(data.templates);
@@ -323,71 +354,12 @@ export default function App() {
   return (
     <div className={`min-h-screen ${darkMode ? "dark bg-[#090d16] text-white" : "bg-slate-50 text-slate-800"} flex flex-col font-sans antialiased`} id="main-app">
       
-      {/* ===============================================================
-          NEW: VIRTUAL ROUTER & ADDRESS BAR CONTROLLER 
-          =============================================================== */}
-      <div className="bg-slate-100 dark:bg-[#070b13] border-b border-slate-200 dark:border-slate-800 text-xs py-2 px-4 shadow-inner flex flex-col md:flex-row gap-3 items-center justify-between select-none shrink-0" id="virtual-route-bar-simulator">
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1 shrink-0">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-700"></span>
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-700"></span>
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-700"></span>
-          </div>
-          
-          <div className="bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-850 px-3 py-1 rounded-lg font-mono text-[10.5px] text-slate-550 flex items-center gap-1.5 w-64 md:w-80 shadow-xs">
-            <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            <span className="text-slate-400">localhost:3000</span>
-            <strong className="text-blue-650 dark:text-blue-400 tracking-tight block truncate">
-              {activeTab === "marketing-ecatalog" ? "/" : activeTab === "customer-portal" ? "/pelanggan" : `/admin/${activeTab}`}
-            </strong>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 text-[9px] font-mono font-bold uppercase tracking-wider" id="virtual-route-switches">
-          <button
-            onClick={() => {
-              setActiveTab("marketing-ecatalog");
-              triggerToast("Dialing domain: (/) - Public Landing & E-Katalog", "info");
-            }}
-            className={`px-3 py-1 rounded border cursor-pointer transition-colors ${activeTab === "marketing-ecatalog" ? "bg-blue-600 border-blue-600 text-white font-extrabold shadow-sm" : "bg-white dark:bg-[#0d1527] hover:bg-slate-100 text-slate-500 border-slate-200 dark:border-slate-800"}`}
-            id="bar-route-btn-home"
-          >
-            🏠 Home (/)
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("customer-portal");
-              triggerToast("Dialing domain: /pelanggan - Portal Pelanggan Terintegrasi", "info");
-            }}
-            className={`px-3 py-1 rounded border cursor-pointer transition-colors ${activeTab === "customer-portal" ? "bg-blue-600 border-blue-600 text-white font-extrabold shadow-sm" : "bg-white dark:bg-[#0d1527] hover:bg-slate-100 text-slate-500 border-slate-200 dark:border-slate-800"}`}
-            id="bar-route-btn-cust"
-          >
-            👤 Client Portal (/pelanggan)
-          </button>
-          <button
-            onClick={() => {
-              if (adminAuthenticated) {
-                setActiveTab("dashboard");
-                triggerToast("Dialing domain: /admin - Secure NOC Admin Console", "info");
-              } else {
-                setActiveTab("dashboard");
-                triggerToast("Authentication Required for /admin", "warning");
-              }
-            }}
-            className={`px-3 py-1 rounded border cursor-pointer transition-colors ${!["marketing-ecatalog", "customer-portal"].includes(activeTab) ? "bg-blue-600 border-blue-600 text-white font-extrabold shadow-sm" : "bg-white dark:bg-[#0d1527] hover:bg-slate-100 text-slate-500 border-slate-200 dark:border-slate-800"}`}
-            id="bar-route-btn-admin"
-          >
-            🔐 Secured Admin (/admin)
-          </button>
-        </div>
-      </div>
-
       {/* Top Professional Global Header bar: Sticky of 16 (h-16) */}
       <header className="bg-white dark:bg-[#0d1527] border-b border-slate-200 dark:border-slate-800 text-slate-950 dark:text-white shrink-0 shadow-xs sticky top-0 z-50 transition-colors" id="global-nav">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between" id="header-content-wrap">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4" id="header-content-wrap">
           
           {/* Logo brand */}
-          <div className="flex items-center gap-2.5" id="brand-area">
+          <div className="flex items-center gap-2.5 shrink-0" id="brand-area">
             <div className="w-9 h-9 overflow-hidden bg-slate-100 dark:bg-slate-900 rounded-lg shrink-0 flex items-center justify-center font-bold border border-slate-200 dark:border-slate-800 shadow-xs" id="brand-logo">
               {bizProfile.logoUrl ? (
                 <img 
@@ -407,28 +379,75 @@ export default function App() {
               <span className="text-[10px] uppercase tracking-widest text-blue-600 dark:text-blue-400 font-extrabold block leading-none font-sans">
                 {bizProfile.companyName}
               </span>
-              <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 tracking-tight mt-1 truncate max-w-[160px] sm:max-w-[280px]" id="brand-title">
+              <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 tracking-tight mt-1 truncate max-w-[120px] sm:max-w-[200px]" id="brand-title">
                 {bizProfile.billingName}
               </h1>
             </div>
           </div>
 
+          {/* NEW: Clean, Integrated Navigation Menu */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#070b13] border border-slate-200 dark:border-slate-800/80 p-0.5 rounded-xl text-xs font-bold uppercase tracking-wider" id="header-navigation-tabs">
+            <button
+              onClick={() => {
+                setActiveTab("marketing-ecatalog");
+                triggerToast("Menuju Katalog Pelayanan Utama Usaha", "info");
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                activeTab === "marketing-ecatalog"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-550 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
+              }`}
+              id="header-nav-btn-home"
+            >
+              🏠 <span className="hidden sm:inline">Katalog</span>
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("customer-portal");
+                triggerToast("Menuju Portal Pelayanan Pelanggan", "info");
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                activeTab === "customer-portal"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-550 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
+              }`}
+              id="header-nav-btn-cust"
+            >
+              👤 <span className="hidden sm:inline">Portal Pelanggan</span>
+            </button>
+            <button
+              onClick={() => {
+                const targetTab = ["marketing-ecatalog", "customer-portal"].includes(activeTab) ? "dashboard" : activeTab;
+                setActiveTab(targetTab);
+                triggerToast("Menuju Console Enkripsi Admin NOC", "info");
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                !["marketing-ecatalog", "customer-portal"].includes(activeTab)
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-550 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
+              }`}
+              id="header-nav-btn-admin"
+            >
+              🔐 <span className="hidden sm:inline">Secure Admin</span>
+            </button>
+          </div>
+
           {/* Connected health monitor badge label */}
-          <div className="flex items-center gap-3" id="telemetry-badge-area">
+          <div className="flex items-center gap-2 shrink-0" id="telemetry-badge-area">
             {/* Theme Toggle Button */}
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className="p-2 px-3 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer transition-colors duration-150 flex items-center justify-center gap-1.5 focus:outline-none bg-white dark:bg-slate-900"
+              className="p-1.5 px-2.5 border border-slate-200 dark:border-slate-805 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer transition-colors duration-150 flex items-center justify-center gap-1.5 focus:outline-none bg-white dark:bg-slate-900"
               title={darkMode ? "Ganti ke Mode Terang" : "Ganti ke Mode Gelap"}
               id="theme-toggler-btn"
             >
               {darkMode ? (
-                <Sun className="w-4 h-4 text-amber-400 shrink-0" />
+                <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               ) : (
-                <Moon className="w-4 h-4 text-blue-600 shrink-0" />
+                <Moon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
               )}
-              <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline-block">
-                {darkMode ? "Mode Terang" : "Mode Gelap"}
+              <span className="text-[9.5px] font-bold uppercase tracking-wider hidden md:inline-block">
+                {darkMode ? "Light" : "Dark"}
               </span>
             </button>
 
@@ -480,6 +499,7 @@ export default function App() {
                       onAddBookkeeping={handleAddBookkeeping}
                       triggerToast={triggerToast}
                       bizProfile={bizProfile}
+                      onUpdateClient={handleUpdateClient}
                     />
                   )}
                 </motion.div>
@@ -516,7 +536,7 @@ export default function App() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (adminInputUser === "admin" && adminInputPass === "admin") {
+                    if (adminInputUser === adminUsername && adminInputPass === adminPassword) {
                       setAdminAuthenticated(true);
                       localStorage.setItem("noc_admin_logged_in", "true");
                       triggerToast("Autentikasi Sukses! Dekripsi database diizinkan.", "success");
@@ -528,11 +548,11 @@ export default function App() {
                   id="admin-form-login"
                 >
                   <div className="space-y-1">
-                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide animate-pulse">ID Username Admin</label>
+                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">ID Username Admin</label>
                     <input
                       type="text"
                       required
-                      placeholder="Masukkan username (contoh: admin)"
+                      placeholder="Masukkan username admin"
                       value={adminInputUser}
                       onChange={(e) => setAdminInputUser(e.target.value)}
                       className="w-full text-xs p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
@@ -546,7 +566,7 @@ export default function App() {
                       <input
                         type={showAdminPass ? "text" : "password"}
                         required
-                        placeholder="Masukkan password (contoh: admin)"
+                        placeholder="Masukkan password admin"
                         value={adminInputPass}
                         onChange={(e) => setAdminInputPass(e.target.value)}
                         className="w-full text-xs p-2.5 pr-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
@@ -571,38 +591,6 @@ export default function App() {
                     <Lock className="w-3.5 h-3.5" /> Autentikasi Enkripsi Console
                   </button>
                 </form>
-
-                {/* Bypass triggers */}
-                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
-                  <div className="flex items-center justify-center gap-1.5 text-[10.5px]">
-                    <span className="text-slate-400 font-semibold font-sans">Uji Coba Cepat:</span>
-                    <strong className="text-[#2563eb] bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded font-mono font-bold font-semibold">admin / admin</strong>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-3 text-[9.5px] font-mono font-bold uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAdminAuthenticated(true);
-                        localStorage.setItem("noc_admin_logged_in", "true");
-                        triggerToast("Akses Terbuka via Bypass Pengembang!", "success");
-                      }}
-                      className="py-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer transition-colors font-bold uppercase block text-center shadow-xs"
-                      id="btn-admin-bypass"
-                    >
-                      ⚡ Bypass Akses Instan
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab("marketing-ecatalog");
-                      }}
-                      className="py-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer transition-colors font-bold uppercase block text-center shadow-xs"
-                    >
-                      🏠 Portal Publik (/)
-                    </button>
-                  </div>
-                </div>
 
               </div>
             </div>
@@ -693,6 +681,8 @@ export default function App() {
                       invoices={invoices} 
                       bookkeeping={bookkeeping} 
                       onNavigate={setActiveTab}
+                      onResetData={handleResetToEmpty}
+                      onUpdateClient={handleUpdateClient}
                     />
                   )}
 
@@ -778,6 +768,15 @@ export default function App() {
                       invoices={invoices}
                       bookkeeping={bookkeeping}
                       templates={templates}
+                      adminUsername={adminUsername}
+                      adminPassword={adminPassword}
+                      onUpdateAdminCredentials={(username, password) => {
+                        localStorage.setItem("noc_admin_username", username);
+                        localStorage.setItem("noc_admin_password", password);
+                        setAdminUsername(username);
+                        setAdminPassword(password);
+                        triggerToast("Kredensial Admin berhasil diperbarui!", "success");
+                      }}
                     />
                   )}
                 </motion.div>

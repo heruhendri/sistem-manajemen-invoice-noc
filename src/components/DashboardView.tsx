@@ -26,11 +26,18 @@ interface DashboardViewProps {
   invoices: Invoice[];
   bookkeeping: BookkeepingRecord[];
   onNavigate: (view: string) => void;
+  onResetData?: () => void;
+  onUpdateClient?: (client: Client) => void;
 }
 
-export default function DashboardView({ clients, invoices, bookkeeping, onNavigate }: DashboardViewProps) {
+export default function DashboardView({ clients, invoices, bookkeeping, onNavigate, onResetData, onUpdateClient }: DashboardViewProps) {
   const [selectedYear, setSelectedYear] = useState<string>("2026");
   const [hoveredReportMonth, setHoveredReportMonth] = useState<string | null>(null);
+
+  // Detect whether database contains mock dummy records
+  const hasDummyData = useMemo(() => {
+    return invoices.some(inv => inv.id === "INV-2026-001" || inv.clientCompany === "PT Citra Global ISP");
+  }, [invoices]);
 
   // Filter clients and invoices
   const activeClientsCount = useMemo(() => clients.filter(c => c.status === "Active").length, [clients]);
@@ -175,6 +182,31 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
           </button>
         </div>
       </div>
+
+      {/* Demo Mode Alert Banner for Client Transition to Real Production */}
+      {hasDummyData && (
+        <div className="bg-gradient-to-r from-amber-50 to-amber-100/60 dark:from-amber-950/20 dark:to-amber-900/10 border border-amber-200 dark:border-amber-900/30 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-3.5 shadow-xs" id="demo-mode-alert">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-amber-900 dark:text-amber-250">Database Masih Berisi Data Demonstrasi / Simulasi</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">Saat ini sistem memuat data bawaan demo (IndoNet, PT Citra Global ISP, dll). Klik tombol bersihkan di kanan untuk mengosongkan seluruh log tagihan & klien agar Anda bisa langsung menginput data pelayanan riil milik instansi Anda secara siap pakai.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm("🚨 PERINGATAN: Tindakan ini akan menghapus seluruh data Klien, Invoice tagihan, dan Buku Kas simulasi dari memori browser Anda secara permanen. Apakah Anda yakin ingin memulai database kosong untuk operasional produksi rill?")) {
+                if (onResetData) onResetData();
+              }
+            }}
+            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center gap-1 hover:shadow-xs self-end md:self-auto"
+            id="btn-purge-demo-dash"
+          >
+            🧹 Kosongkan & Mulai Riil
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="stats-grid">
@@ -470,7 +502,12 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
       </div>
 
       {/* Real-time Bandwidth monitoring section with variable port interface selection */}
-      <TrafficMonitor title="NOC Enterprise Bandwidth Core Stream (NOC Admin)" isAdmin={true} clients={clients} />
+      <TrafficMonitor 
+        title="NOC Enterprise Bandwidth Core Stream (NOC Admin)" 
+        isAdmin={true} 
+        clients={clients} 
+        onUpdateClient={onUpdateClient}
+      />
 
       {/* Payment Transactions Section */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden animate-in fade-in duration-300" id="recent-payments-table-card">

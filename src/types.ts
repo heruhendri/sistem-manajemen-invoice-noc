@@ -38,6 +38,8 @@ export interface Client {
   mikrotikPort?: number;
   mikrotikUser?: string;
   mikrotikPassword?: string;
+  mikrotikInterface?: string;
+  mikrotikVersion?: "ROS6" | "ROS7";
   mtActivePppoeCount?: number;
   mtActiveHotspotCount?: number;
   mtPppoeSecretCount?: number;

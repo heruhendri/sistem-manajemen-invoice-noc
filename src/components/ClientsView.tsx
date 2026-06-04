@@ -90,6 +90,8 @@ export default function ClientsView({
   const [mikrotikPort, setMikrotikPort] = useState<number>(8728);
   const [mikrotikUser, setMikrotikUser] = useState("");
   const [mikrotikPassword, setMikrotikPassword] = useState("");
+  const [mikrotikInterface, setMikrotikInterface] = useState("ether1-lan");
+  const [mikrotikVersion, setMikrotikVersion] = useState<"ROS6" | "ROS7">("ROS7");
   const [mtActivePppoeCount, setMtActivePppoeCount] = useState<number>(0);
   const [mtActiveHotspotCount, setMtActiveHotspotCount] = useState<number>(0);
   const [mtPppoeSecretCount, setMtPppoeSecretCount] = useState<number>(0);
@@ -200,6 +202,8 @@ export default function ClientsView({
     setMikrotikPort(8728);
     setMikrotikUser("");
     setMikrotikPassword("");
+    setMikrotikInterface("ether1-lan");
+    setMikrotikVersion("ROS7");
     setMtActivePppoeCount(0);
     setMtActiveHotspotCount(0);
     setMtPppoeSecretCount(0);
@@ -227,6 +231,8 @@ export default function ClientsView({
     setMikrotikPort(client.mikrotikPort || 8728);
     setMikrotikUser(client.mikrotikUser || "");
     setMikrotikPassword(client.mikrotikPassword || "");
+    setMikrotikInterface(client.mikrotikInterface || "ether1-lan");
+    setMikrotikVersion(client.mikrotikVersion || "ROS7");
     setMtActivePppoeCount(client.mtActivePppoeCount || 0);
     setMtActiveHotspotCount(client.mtActiveHotspotCount || 0);
     setMtPppoeSecretCount(client.mtPppoeSecretCount || 0);
@@ -273,6 +279,8 @@ export default function ClientsView({
       mikrotikPort,
       mikrotikUser,
       mikrotikPassword,
+      mikrotikInterface,
+      mikrotikVersion,
       mtActivePppoeCount,
       mtActiveHotspotCount,
       mtPppoeSecretCount,
@@ -512,6 +520,30 @@ export default function ClientsView({
                       value={mikrotikPassword}
                       onChange={(e) => setMikrotikPassword(e.target.value)}
                       placeholder="••••••••••••••"
+                      className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-800 dark:text-slate-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3" id="router-version-interface-grid">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono">Versi RouterOS MikroTik</label>
+                    <select
+                      value={mikrotikVersion}
+                      onChange={(e) => setMikrotikVersion(e.target.value as "ROS6" | "ROS7")}
+                      className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-800 dark:text-slate-200"
+                    >
+                      <option value="ROS7">RouterOS v7 (REST API over HTTPS)</option>
+                      <option value="ROS6">RouterOS v6 (Legacy API Socket)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono">Nama Interface Utama Monitoring</label>
+                    <input
+                      type="text"
+                      value={mikrotikInterface}
+                      onChange={(e) => setMikrotikInterface(e.target.value)}
+                      placeholder="ether1-wan"
                       className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-800 dark:text-slate-200"
                     />
                   </div>
