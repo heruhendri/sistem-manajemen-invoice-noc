@@ -83,7 +83,7 @@ export default function IntegrationView({
 
   // WA QR pairing states
   const [pairingProgress, setPairingProgress] = useState<"none" | "initializing" | "ready" | "connecting" | "completed">(
-    whatsappConnected ? "completed" : "ready"
+    whatsappConnected ? "completed" : "none"
   );
   const [phoneNumber, setPhoneNumber] = useState(whatsappConnected ? "081234567890" : "");
 
