@@ -25,6 +25,7 @@ curl -sSL https://raw.githubusercontent.com/heruhendri/sistem-manajemen-invoice-
 - **E-Catalog & Voucher:** Pembelian voucher hotspot instan dengan simulasi pembayaran QRIS.
 - **Gateway Notifikasi:** Pengiriman tagihan otomatis via WhatsApp Relay dan Telegram Bot.
 - **E-Invoice PDF:** Generate invoice profesional dengan QRIS statis otomatis.
+- **Vite 6 Security:** Otomasi konfigurasi `allowedHosts` untuk deployment domain publik yang aman.
 
 ## 💻 Akses Dashboard
 Setelah instalasi selesai, aplikasi dapat diakses melalui:

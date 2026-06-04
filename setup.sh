@@ -103,8 +103,13 @@ if [ $? -eq 0 ]; then
         
         echo -e "${GREEN}Instalasi selesai!${NC}"
         echo -e "${BLUE}==================================================${NC}"
+        if [[ ! -z "$DOMAIN_INPUT" && "$DOMAIN_INPUT" != "all" ]]; then
+            FINAL_URL="http://$DOMAIN_INPUT:$APP_PORT"
+        else
+            FINAL_URL="http://localhost:$APP_PORT"
+        fi
         echo -e "Aplikasi berjalan di background dengan PM2."
-        echo -e "URL: ${GREEN}http://localhost:$APP_PORT${NC}"
+        echo -e "URL: ${GREEN}$FINAL_URL${NC}"
         echo -e "Gunakan '${YELLOW}pm2 status${NC}' untuk melihat status."
         echo -e "Gunakan '${YELLOW}pm2 logs noc-billing${NC}' untuk melihat log."
         echo -e "Gunakan '${RED}pm2 restart noc-billing${NC}' untuk memuat ulang."
@@ -112,10 +117,15 @@ if [ $? -eq 0 ]; then
     else
         echo -e "${GREEN}Instalasi selesai!${NC}"
         echo -e "${BLUE}==================================================${NC}"
+        if [[ ! -z "$DOMAIN_INPUT" && "$DOMAIN_INPUT" != "all" ]]; then
+            FINAL_URL="http://$DOMAIN_INPUT:$APP_PORT"
+        else
+            FINAL_URL="http://localhost:$APP_PORT"
+        fi
         echo -e "Untuk menjalankan aplikasi secara manual:"
         echo -e "${GREEN}cd $DIR_NAME${NC}"
         echo -e "${GREEN}npm run dev -- --port $APP_PORT --host${NC}"
-        echo -e "Akses di: ${GREEN}http://localhost:$APP_PORT${NC}"
+        echo -e "Akses di: ${GREEN}$FINAL_URL${NC}"
         echo -e "${BLUE}==================================================${NC}"
     fi
 else
