@@ -160,35 +160,67 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    const data = loadData();
+    const local = loadData();
     
-    // Auto-detect and purge simulated/dummy records on first load of this production version
-    const hasSimulatedRecords = data.invoices.some(inv => inv.clientCompany === "PT Citra Global ISP" || inv.id === "INV-2026-001") ||
-                                data.clients.some(c => c.id === "CLI-001" || c.name === "Budi Hartono") ||
-                                data.bookkeeping.some(b => b.description.includes("PT Citra Global ISP"));
-                                
-    if (hasSimulatedRecords) {
-      data.clients = [];
-      data.invoices = [];
-      data.bookkeeping = [];
-      saveData({
-        clients: [],
-        invoices: [],
-        bookkeeping: [],
-        templates: data.templates,
-        serviceCategories: data.serviceCategories
+    // Purge any residual simulated / dummy records automatically from local storage
+    const cleanClients = local.clients.filter(c => c.id !== "CLI-001" && c.name !== "Budi Hartono");
+    const cleanInvoices = local.invoices.filter(i => i.id !== "INV-2026-001" && i.clientCompany !== "PT Citra Global ISP");
+    const cleanBookkeeping = local.bookkeeping.filter(b => !b.description.includes("PT Citra Global ISP"));
+    
+    // Attempt to download the latest state from the backend database persistence
+    fetch("/api/sync/db")
+      .then(res => res.json())
+      .then(backend => {
+        if (backend && backend.clients && backend.clients.length > 0) {
+          setClients(backend.clients);
+          setInvoices(backend.invoices || []);
+          setBookkeeping(backend.bookkeeping || []);
+          setTemplates(backend.templates || local.templates);
+          setServiceCategories(backend.serviceCategories || local.serviceCategories);
+        } else {
+          // Initialize server database with client state
+          const baselineData = {
+            clients: cleanClients,
+            invoices: cleanInvoices,
+            bookkeeping: cleanBookkeeping,
+            templates: local.templates,
+            serviceCategories: local.serviceCategories
+          };
+          setClients(cleanClients);
+          setInvoices(cleanInvoices);
+          setBookkeeping(cleanBookkeeping);
+          setTemplates(local.templates);
+          setServiceCategories(local.serviceCategories);
+
+          fetch("/api/sync/db", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(baselineData)
+          }).catch(err => console.error("Initial database handshake push failed:", err));
+        }
+      })
+      .catch(() => {
+        // Fallback to local storage if API backend is launching
+        setClients(cleanClients);
+        setInvoices(cleanInvoices);
+        setBookkeeping(cleanBookkeeping);
+        setTemplates(local.templates);
+        setServiceCategories(local.serviceCategories);
       });
-      triggerToast("Database simulasi berhasil dibersihkan otomatis! Sistem beralih ke mode operasi riil.", "success");
-    }
 
-    setClients(data.clients);
-    setInvoices(data.invoices);
-    setTemplates(data.templates);
-    setBookkeeping(data.bookkeeping);
-    setServiceCategories(data.serviceCategories);
+    // Load WhatsApp connection status from the server
+    fetch("/api/whatsapp/status")
+      .then(res => res.json())
+      .then(data => {
+        const isConnected = data.status === "completed";
+        setWhatsappConnected(isConnected);
+        localStorage.setItem("noc_billing_whatsapp_connected", String(isConnected));
+      })
+      .catch(() => {
+        const waSynced = localStorage.getItem("noc_billing_whatsapp_connected") === "true";
+        setWhatsappConnected(waSynced);
+      });
 
-    const waSynced = localStorage.getItem("noc_billing_whatsapp_connected") === "true";
-    setWhatsappConnected(waSynced);
     setLoading(false);
   }, []);
 
@@ -202,7 +234,7 @@ export default function App() {
     localStorage.setItem("noc_billing_dark_mode", String(darkMode));
   }, [darkMode]);
 
-  // Sync to local storage wrapper on any change
+  // Sync to local storage and push to backend on any change
   const syncState = (
     updatedClients: Client[],
     updatedInvoices: Invoice[],
@@ -210,13 +242,22 @@ export default function App() {
     updatedTemplates: NotificationTemplate[],
     updatedCategories: ServiceCategory[] = serviceCategories
   ) => {
-    saveData({
+    const dataToSync = {
       clients: updatedClients,
       invoices: updatedInvoices,
       bookkeeping: updatedBookkeeping,
       templates: updatedTemplates,
       serviceCategories: updatedCategories
-    });
+    };
+
+    saveData(dataToSync);
+
+    // Push state updates asynchronously to the production Express server
+    fetch("/api/sync/db", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(dataToSync)
+    }).catch(err => console.error("Async state push to backend server failed:", err));
   };
 
   // Client mutations

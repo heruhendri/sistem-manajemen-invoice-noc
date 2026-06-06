@@ -463,29 +463,44 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
             <p className="text-xs text-slate-400 mb-4" id="sla-summary">Ping proaktif terintegrasi pada target host Zabbix & Prometheus pelanggan.</p>
             
             <div className="space-y-3" id="sla-logs-list">
-              <div className="flex gap-2.5 text-xs text-slate-600 p-2 border border-slate-100 bg-slate-50/50 rounded-lg" id="log-1">
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold" id="log-1-t">PT Citra Global ISP</p>
-                  <p className="text-[10px] text-slate-400" id="log-1-sub">12 target ping nodes proaktif terpantau online & stabil.</p>
+              {clients.filter(c => c.mikrotikIp).length === 0 ? (
+                <div className="text-center py-6 text-slate-400 text-xs">
+                  <Activity className="w-8 h-8 mx-auto text-slate-300 mb-1.5 animate-pulse" />
+                  <p>Tidak ada log aktif.</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Tambahkan Router MikroTik pada tab Klien untuk memantau status secara langsung.</p>
                 </div>
-              </div>
-
-              <div className="flex gap-2.5 text-xs text-slate-600 p-2 border border-slate-100 bg-slate-50/50 rounded-lg" id="log-2">
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold" id="log-2-t">IndoNet Solusindo</p>
-                  <p className="text-[10px] text-slate-400" id="log-2-sub">Core Router BGP alert: Normal. Latency Jakarta-SGP 12ms.</p>
-                </div>
-              </div>
-
-              <div className="flex gap-2.5 text-xs text-slate-600 p-2 border border-red-100 bg-red-50/30 rounded-lg animate-pulse" id="log-3">
-                <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-red-950" id="log-3-t">Aero Global Hosting</p>
-                  <p className="text-[10px] text-red-600" id="log-3-sub">Tagihan nomor INV-2026-008 menunggak. Notifikasi WA dikirim.</p>
-                </div>
-              </div>
+              ) : (
+                clients.filter(c => c.mikrotikIp || c.mikrotikInterface).map((client) => {
+                  const hasUnpaid = invoices.some(i => i.clientId === client.id && i.status === "Unpaid");
+                  return (
+                    <div 
+                      key={client.id}
+                      className={`flex gap-2.5 text-xs p-2 border rounded-lg ${
+                        hasUnpaid 
+                          ? "border-amber-100 bg-amber-50/30" 
+                          : "border-slate-100 bg-slate-50/50"
+                      }`}
+                      id={`log-${client.id}`}
+                    >
+                      {hasUnpaid ? (
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      ) : (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                      )}
+                      <div>
+                        <p className="font-semibold text-slate-805" id={`log-${client.id}-t`}>
+                          {client.company || client.name}
+                        </p>
+                        <p className="text-[10px] text-slate-500" id={`log-${client.id}-sub`}>
+                          {hasUnpaid 
+                            ? `Status: Aktif. Terdapat tagihan outstanding belum lunas.`
+                            : `Terhubung via ${client.mikrotikIp || "IP DHCP"}:${client.mikrotikPort || 8728}. Monitoring aktif.`}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 

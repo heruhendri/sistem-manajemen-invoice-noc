@@ -360,13 +360,13 @@ export default function CustomerPortalView({
             </div>
 
             {/* Simulated Live Customer Router Diagnostik Panel */}
-            {simulatedClient.mikrotikIp && (() => {
+            {(() => {
               const companySlug = simulatedClient.company.toLowerCase().replace(/[^a-z0-9]/g, "");
               const secretCount = simulatedClient.mtPppoeSecretCount || 10;
               const activeCount = simulatedClient.mtActivePppoeCount || 6;
               const offlineCount = Math.max(0, secretCount - activeCount);
               const hotspotCount = simulatedClient.mtActiveHotspotCount || 4;
-
+ 
               // Create simulated secrets
               const secrets = Array.from({ length: secretCount }).map((_, index) => {
                 const isOnline = index < activeCount;
@@ -381,7 +381,7 @@ export default function CustomerPortalView({
                   lastOof: isOnline ? "-" : `${index + 1} hari lalu`
                 };
               });
-
+ 
               const hotspots = Array.from({ length: hotspotCount }).map((_, index) => {
                 return {
                   username: `hs_guest_${index + 1}`,
@@ -392,22 +392,22 @@ export default function CustomerPortalView({
                   bytesOut: `${((index + 1) * 11.2).toFixed(1)} MB`
                 };
               });
-
+ 
               return (
                 <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-xl space-y-4 font-sans" id="portal-mikrotik-diagnostics">
                   {/* Brand & IP header */}
                   <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block leading-none">Status Koneksi Core</span>
-                        <h4 className="text-xs font-bold text-slate-200 mt-1 flex items-center gap-1">
-                          🌐 Host IP: {simulatedClient.mikrotikIp}
-                        </h4>
-                      </div>
+                       <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                       <div>
+                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block leading-none">Status Koneksi Core</span>
+                         <h4 className="text-xs font-bold text-slate-200 mt-1 flex items-center gap-1">
+                           🌐 Host IP: {simulatedClient.mikrotikIp || "10.50.24.15 (Simulasi)"}
+                         </h4>
+                       </div>
                     </div>
                     <span className="text-[9px] bg-indigo-500/15 text-indigo-300 font-extrabold px-2 py-0.5 rounded border border-indigo-500/25 uppercase tracking-wide">
-                      Router Terhubung
+                      {simulatedClient.mikrotikIp ? "Router Terhubung" : "Mode Simulasi Aktif"}
                     </span>
                   </div>
 
@@ -983,6 +983,7 @@ export default function CustomerPortalView({
           <TrafficMonitor 
             title={`Live SLA Traffic Monitoring`}
             isAdmin={false}
+            clients={clients}
             clientName={`${simulatedClient.company} (${simulatedClient.name})`}
           />
         </div>

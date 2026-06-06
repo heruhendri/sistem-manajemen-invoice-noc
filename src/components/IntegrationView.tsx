@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { NotificationTemplate, Client, Invoice } from "../types";
 import { 
   QrCode, 
@@ -86,10 +86,56 @@ export default function IntegrationView({
     whatsappConnected ? "completed" : "none"
   );
   const [phoneNumber, setPhoneNumber] = useState(whatsappConnected ? "081234567890" : "");
-  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [realQrCode, setRealQrCode] = useState<string>("");
 
   // Restore Database State Confirm inside Integration
   const [showRestoreConfirm, setShowRestoreConfirm] = useState<any | null>(null);
+
+  // Poll real-time backend WhatsApp session state
+  React.useEffect(() => {
+    let intervalId: any;
+
+    const queryDaemonStatus = () => {
+      fetch("/api/whatsapp/status")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.status === "completed") {
+            setPairingProgress("completed");
+            if (data.phoneNumber && data.phoneNumber !== "Terhubung") {
+              setPhoneNumber(data.phoneNumber);
+            }
+            onSetWhatsappConnected(true);
+          } else if (data.status === "ready") {
+            setPairingProgress("ready");
+            // Pull the latest live QR image string
+            fetch("/api/whatsapp/qr")
+              .then((r) => r.json())
+              .then((qrBody) => {
+                if (qrBody.qr) {
+                  setRealQrCode(qrBody.qr);
+                }
+              })
+              .catch((e) => console.error("Failed to query QR endpoint:", e));
+          } else if (data.status === "connecting") {
+            setPairingProgress("connecting");
+          } else if (data.status === "initializing") {
+            setPairingProgress("initializing");
+          } else if (data.status === "none") {
+            // Only force 'none' if we were waiting or initialized but server reset
+            if (pairingProgress === "completed") {
+              setPairingProgress("none");
+              onSetWhatsappConnected(false);
+            }
+          }
+        })
+        .catch((err) => console.error("WhatsApp server daemon unreachable:", err));
+    };
+
+    queryDaemonStatus();
+    intervalId = setInterval(queryDaemonStatus, 2000);
+
+    return () => clearInterval(intervalId);
+  }, [pairingProgress, onSetWhatsappConnected]);
 
   // WhatsApp Multi-Admin state
   const [whatsappAdminPhones, setWhatsappAdminPhones] = useState<string[]>([
@@ -136,7 +182,7 @@ export default function IntegrationView({
   }, [currentTemplate]);
 
   // Trigger QR render sequence
-  const handleStartLinking = async (e: React.FormEvent) => {
+  const handleStartLinking = (e: React.FormEvent) => {
     e.preventDefault();
     if (!phoneNumber) {
       notify("Harap masukkan nomor WhatsApp yang ingin disinkronisasikan terlebih dahulu.", "warning");
@@ -144,41 +190,32 @@ export default function IntegrationView({
     }
     setPairingProgress("initializing");
     
-    try {
-      // Panggil API backend asli untuk mendapatkan QR
-      const response = await fetch('/api/whatsapp/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneNumber })
+    // Call real backend server to start handshake daemon
+    fetch("/api/whatsapp/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phoneNumber })
+    })
+      .then(res => res.json())
+      .then(data => {
+        notify("Menghubungi daemon Baileys... Harap tunggu beberapa detik.", "info");
+      })
+      .catch(err => {
+        console.error(err);
+        notify("WhatsApp gateway server offline.", "error");
+        setPairingProgress("none");
       });
-      const data = await response.json();
-      if (data.qr) {
-        setQrCodeUrl(data.qr);
-        setPairingProgress("ready");
-      }
-    } catch (err) {
-      notify("Gagal menghubungi server WhatsApp Gateway.", "error");
-      setPairingProgress("none");
-    }
   };
 
-  // Polling status koneksi riil
-  useEffect(() => {
-    let interval: any;
-    if (pairingProgress === "ready") {
-      interval = setInterval(async () => {
-        const res = await fetch('/api/whatsapp/status');
-        const status = await res.json();
-        if (status.connected) {
-          setPairingProgress("completed");
-          onSetWhatsappConnected(true);
-          notify("WhatsApp Gateway Berhasil Terhubung!", "success");
-          clearInterval(interval);
-        }
-      }, 3000);
-    }
-    return () => clearInterval(interval);
-  }, [pairingProgress]);
+  // Simulating scanner match success (kept for developer playground fallback but unused by default)
+  const handleConfirmPairing = () => {
+    setPairingProgress("connecting");
+    setTimeout(() => {
+      setPairingProgress("completed");
+      onSetWhatsappConnected(true);
+      notify("WhatsApp Server terhubung sukses!", "success");
+    }, 1500);
+  };
 
   // Terminate whatsapp link
   const handleDisconnect = () => {
@@ -1543,27 +1580,39 @@ export default function IntegrationView({
               {/* QR Ready Scan screen */}
               {pairingProgress === "ready" && (
                 <div className="flex flex-col items-center justify-center text-center space-y-4 py-3" id="wa-scan-panel">
-                  <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-100 font-bold uppercase py-0.5 px-2 rounded-full">Menolak Timeout Sesi QR</span>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold uppercase py-0.5 px-2 rounded-full animate-pulse">Sesi QR Baileys Aktif</span>
                   
-                  {/* QR Code Container Simulation with animated overlay scanline */}
-                  <div className="relative w-44 h-44 bg-white p-2 border border-slate-200 rounded-xl shadow-inner flex items-center justify-center overflow-hidden">
+                  {/* QR Code Container with animated overlay scanline */}
+                  <div className="relative w-48 h-48 bg-white p-2 border border-slate-200 rounded-xl shadow-inner flex items-center justify-center overflow-hidden">
                     {/* Scan bar line */}
-                    <div className="absolute left-1/2 -translate-x-1/2 w-full h-[2px] bg-blue-500 shadow-md animate-[bounce_3s_infinite]" id="scanning-laser-line"></div>
+                    <div className="absolute left-1/2 -translate-x-1/2 w-full h-[2px] bg-emerald-500 shadow-md animate-[bounce_3s_infinite]" id="scanning-laser-line"></div>
                     
-                    {/* Actual QR SVG */}
-                    {qrCodeUrl ? (
-                      <img src={qrCodeUrl} alt="WhatsApp QR Code" className="w-full h-full" />
+                    {/* Actual dynamic QR code base64 img */}
+                    {realQrCode ? (
+                      <img 
+                        src={realQrCode} 
+                        alt="WhatsApp Gateway live QR code" 
+                        className="w-full h-full object-contain"
+                        referrerPolicy="no-referrer"
+                      />
                     ) : (
-                      <div className="flex flex-col items-center">
-                        <RefreshCw className="w-8 h-8 text-slate-300 animate-spin" />
-                        <span className="text-[10px] text-slate-400 mt-2">Menunggu QR...</span>
+                      <div className="flex flex-col items-center justify-center space-y-2 text-slate-400 font-sans p-4">
+                        <RefreshCw className="w-7 h-7 text-emerald-600 animate-spin" />
+                        <span className="text-[10.5px] font-bold">Membuat QR live...</span>
+                        <span className="text-[9px] text-slate-400">Menghubungi WebSocket.</span>
                       </div>
                     )}
                   </div>
-
+ 
                   <div className="text-xs space-y-1.5" id="scan-instructions-meta">
-                    <p className="font-semibold text-slate-800">Pindai QR Code di Atas</p>
-                    <p className="text-[11px] text-slate-400 font-sans">Buka WhatsApp Link Device di HP, arahkan kamera ke bar screen ini.</p>
+                    <p className="font-extrabold text-slate-800 text-emerald-600 uppercase tracking-wide">Pindai QR Code Sungguhan</p>
+                    <p className="text-[11px] text-slate-500 font-sans leading-normal px-2">
+                      Buka <strong>WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat</strong> di HP Anda, kemudian arahkan kamera ke kode QR di atas. Sinkronisasi aktif akan meluncur otomatis!
+                    </p>
+                  </div>
+
+                  <div className="w-full p-2.5 bg-slate-50 border border-slate-150 rounded-lg text-[10.5px] text-slate-500 leading-normal font-sans italic">
+                    💡 Sistem akan mendeteksi otorisasi scan Anda secara instan dalam 1-2 detik setelah pemindaian berhasil diselaraskan.
                   </div>
                 </div>
               )}
@@ -1602,11 +1651,18 @@ export default function IntegrationView({
                         <button
                           type="button"
                           onClick={() => {
-                            onSetWhatsappConnected(false);
-                            setPairingProgress("none");
-                            setPhoneNumber("");
-                            setShowDisconnectConfirm(false);
-                            notify("WhatsApp gateway berhasil diputuskan.", "success");
+                            fetch("/api/whatsapp/disconnect", { method: "POST" })
+                              .then(() => {
+                                onSetWhatsappConnected(false);
+                                setPairingProgress("none");
+                                setPhoneNumber("");
+                                setRealQrCode("");
+                                setShowDisconnectConfirm(false);
+                                notify("Gateway WhatsApp berhasil diputuskan dari server.", "success");
+                              })
+                              .catch(() => {
+                                notify("Gagal mematikan daemon WhatsApp di server backend.", "error");
+                              });
                           }}
                           className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-bold text-[10px] cursor-pointer"
                         >

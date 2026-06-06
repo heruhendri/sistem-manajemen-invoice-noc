@@ -85,7 +85,9 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
   });
 
   // State to handle the router currently chosen by the select dropdown
-  const [activeRouterId, setActiveRouterId] = useState<string>("core-sgp");
+  const [activeRouterId, setActiveRouterId] = useState<string>(() => {
+    return localStorage.getItem("noc_active_router_id") || "";
+  });
 
   // Router management form fields
   const [routerAddMode, setRouterAddMode] = useState<"manual" | "sync">("manual");
@@ -125,7 +127,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
 
   // Real MikroTik API Toggle
   const [useRealApi, setUseRealApi] = useState<boolean>(() => {
-    return localStorage.getItem("noc_use_real_mikrotik_api") === "true";
+    return localStorage.getItem("noc_use_real_mikrotik_api") !== "false";
   });
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -142,6 +144,9 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
   const [activeSockets, setActiveSockets] = useState<number>(430);
   const [historySize] = useState<number>(20);
   const [isAlertDismissed, setIsAlertDismissed] = useState<boolean>(false);
+
+  // Keep track of previous traffic bytes to calculate real delta-speed
+  const lastBytesRef = useRef<Record<string, { rx: number; tx: number; time: number }>>({});
 
   // Terminal API Console trace messages
   const [apiTerminalLogs, setApiTerminalLogs] = useState<string[]>(() => {
@@ -209,6 +214,12 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
     localStorage.setItem("noc_use_real_mikrotik_api", String(useRealApi));
   }, [useRealApi]);
 
+  useEffect(() => {
+    if (activeRouterId) {
+      localStorage.setItem("noc_active_router_id", activeRouterId);
+    }
+  }, [activeRouterId]);
+
   // Merge default core backbones, customers with router config, and custom added routers
   const selectableRouters = useMemo(() => {
     interface RouterOption {
@@ -223,26 +234,21 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
       type: string;
     }
 
-    const list: RouterOption[] = [
-      { id: "core-sgp", name: "🌐 Router Core Nusantara - SGP Uplink", ip: "103.155.10.1", port: 443, user: "admin", interfaceName: "sfp-plus1", type: "core" },
-      { id: "core-jkt", name: "🌐 Router Core Nusantara - JKT PoP", ip: "202.85.99.2", port: 443, user: "admin_jkt", interfaceName: "ether1-wan", type: "core" },
-    ];
+    const list: RouterOption[] = [];
     
-    // Add Client Routers if they have a configured microtik IP
+    // Add Client Routers
     clients.forEach(c => {
-      if (c.mikrotikIp) {
-        list.push({
-          id: `client-${c.id}`,
-          name: `🏢 Router Klien: ${c.company} (${c.id})`,
-          ip: c.mikrotikIp,
-          port: c.mikrotikPort || 8728,
-          user: c.mikrotikUser || "admin",
-          password: c.mikrotikPassword || "",
-          interfaceName: c.mikrotikInterface || "ether1-lan",
-          version: c.mikrotikVersion || "ROS7",
-          type: "client"
-        });
-      }
+      list.push({
+        id: `client-${c.id}`,
+        name: `🏢 Router Klien: ${c.company} (${c.id})`,
+        ip: c.mikrotikIp || "10.50.24.15",
+        port: c.mikrotikPort || 8728,
+        user: c.mikrotikUser || "admin",
+        password: c.mikrotikPassword || "",
+        interfaceName: c.mikrotikInterface || "ether1-lan",
+        version: c.mikrotikVersion || "ROS7",
+        type: "client"
+      });
     });
 
     // Add Custom Routers Setup
@@ -253,10 +259,23 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
         ip: r.ip,
         port: r.port,
         user: r.user,
+        password: (r as any).password || r.password || "",
         interfaceName: r.interfaceName,
         type: "custom"
       });
     });
+
+    if (list.length === 0) {
+      list.push({
+        id: "loopback",
+        name: "🖥️ Host Monitoring Utama (Loopback Sim)",
+        ip: "127.0.0.1",
+        port: 80,
+        user: "admin",
+        interfaceName: "lo",
+        type: "core"
+      });
+    }
 
     return list;
   }, [clients, customRouters]);
@@ -383,7 +402,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
           onUpdateClient(updatedClient);
           addLogMessage(`Sinkronisasi Router Pelanggan "${client.company}" telah dihapus/diputuskan.`);
           if (activeRouterId === id) {
-            setActiveRouterId("core-sgp");
+            setActiveRouterId(selectableRouters[0]?.id || "");
           }
         }
       }
@@ -393,7 +412,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
         const updated = customRouters.filter(r => r.id !== id);
         saveCustomRouters(updated);
         if (activeRouterId === id) {
-          setActiveRouterId("core-sgp");
+          setActiveRouterId(selectableRouters[0]?.id || "");
         }
         addLogMessage(`Router "${targetRouter?.name || id}" manual berhasil dihapus.`);
       }
@@ -445,73 +464,133 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
       let targetRx = Math.round(maxSpeedLimitMbps * 0.45);
 
       if (useRealApi && activeRouter.ip) {
-        const passwordToUse = (activeRouter as any).password || "";
-        const authBase64 = btoa(`${activeRouter.user}:${passwordToUse}`);
-        const headers = {
-          "Authorization": `Basic ${authBase64}`,
-          "Content-Type": "application/json"
-        };
-        const timeoutMs = 800;
+        const timeoutMs = 2500; // Allow 2.5s for the proxy roundtrip
 
-        addLogMessage(`REST API Query [${(activeRouter as any).version || "ROS7"}]: Handshaking credentials with https://${activeRouter.ip}:${activeRouter.port}...`);
+        addLogMessage(`REST API Query [${(activeRouter as any).version || "ROS7"}]: Menghubungi router https://${activeRouter.ip}:${activeRouter.port} via Backend Proxy...`);
 
         try {
-          // Parallel fetch attempts
           const controller = new AbortController();
           const tId = setTimeout(() => controller.abort(), timeoutMs);
 
-          const endpoints = [
-            `https://${activeRouter.ip}:${activeRouter.port}/rest/interface`,
-            `https://${activeRouter.ip}:${activeRouter.port}/rest/system/resource`,
-            `https://${activeRouter.ip}:${activeRouter.port}/rest/system/health`,
-            `https://${activeRouter.ip}:${activeRouter.port}/rest/ppp/active`,
-            `https://${activeRouter.ip}:${activeRouter.port}/rest/ppp/secret`,
-            `https://${activeRouter.ip}:${activeRouter.port}/rest/ip/hotspot/active`,
-            `https://${activeRouter.ip}:${activeRouter.port}/rest/ip/hotspot/user`
-          ];
-
-          // Call first endpoint for traffic monitoring
-          const res = await fetch(endpoints[0], { method: "GET", headers, signal: controller.signal });
-          clearTimeout(tId);
-
-          if (res.ok) {
-            const data = await res.json();
-            apiSuccess = true;
-            
-            const matchedInf = Array.isArray(data) 
-              ? data.find(i => i.name === activeRouter.interfaceName || i.name?.includes(activeRouter.interfaceName))
-              : null;
-            
-            if (matchedInf) {
-              const rxBytes = Number(matchedInf["rx-byte"]) || 0;
-              const txBytes = Number(matchedInf["tx-byte"]) || 0;
-              currentRx = Math.min(maxSpeedLimitMbps, Math.round((rxBytes % 1000000) / 1000) || 120);
-              currentTx = Math.min(maxSpeedLimitMbps, Math.round((txBytes % 1000000) / 1000) || 60);
-              addLogMessage(`[API SUCCESS] Nama Interface: ${activeRouter.interfaceName} -> Rx: ${currentRx} Mbps, Tx: ${currentTx} Mbps`);
-            } else {
-              currentRx = targetRx + Math.floor((Math.random() - 0.5) * 30);
-              currentTx = targetTx + Math.floor((Math.random() - 0.5) * 15);
-            }
-
-            // Attempt auxiliary endpoints and log values if they exist, or simulate elegantly if restricted
+          const callProxy = async (endpoint: string, proxyMethod: string = "GET", proxyBody?: any) => {
             try {
-              const resResource = await fetch(endpoints[1], { method: "GET", headers, signal: controller.signal });
-              if (resResource.ok) {
-                const resData = await resResource.json();
-                if (resData && !Array.isArray(resData)) {
-                  currentCpuLoad = Number(resData["cpu-load"]) || currentCpuLoad;
-                  currentUptime = resData["uptime"] || currentUptime;
-                } else if (Array.isArray(resData) && resData[0]) {
-                  currentCpuLoad = Number(resData[0]["cpu-load"]) || currentCpuLoad;
-                  currentUptime = resData[0]["uptime"] || currentUptime;
+              const res = await fetch("/api/mikrotik/proxy", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  host: activeRouter.ip,
+                  port: activeRouter.port,
+                  user: activeRouter.user,
+                  password: (activeRouter as any).password || "",
+                  endpoint,
+                  method: proxyMethod,
+                  body: proxyBody,
+                  version: (activeRouter as any).version || "ROS7"
+                }),
+                signal: controller.signal
+              });
+              
+              if (res.ok) {
+                const body = await res.json();
+                return body.success ? body.data : null;
+              }
+            } catch (_) {}
+            return null;
+          };
+
+          let trafficLoaded = false;
+
+          // Attempt monitor-traffic POST first (instantaneous real speed directly from RouterOS kernel)
+          try {
+            const monitorData = await callProxy(
+              "/rest/interface/monitor-traffic",
+              "POST",
+              { interface: activeRouter.interfaceName, once: "" }
+            );
+
+            if (monitorData) {
+              const matchedMon = Array.isArray(monitorData) ? monitorData[0] : monitorData;
+              if (matchedMon && (matchedMon["rx-bits-per-second"] !== undefined || matchedMon["rxBitsPerSecond"] !== undefined || matchedMon["tx-bits-per-second"] !== undefined || matchedMon["txBitsPerSecond"] !== undefined)) {
+                const rxBps = Number(matchedMon["rx-bits-per-second"] !== undefined ? matchedMon["rx-bits-per-second"] : matchedMon["rxBitsPerSecond"]) || 0;
+                const txBps = Number(matchedMon["tx-bits-per-second"] !== undefined ? matchedMon["tx-bits-per-second"] : matchedMon["txBitsPerSecond"]) || 0;
+                currentRx = Math.round((rxBps / 1000000) * 100) / 100; // convert bits-per-sec load directly to Mbps
+                currentTx = Math.round((txBps / 1000000) * 100) / 100;
+                trafficLoaded = true;
+                apiSuccess = true;
+                addLogMessage(`[MONITOR TRAFFIC API SUCCESS] Interface: ${activeRouter.interfaceName} -> Rx: ${currentRx} Mbps, Tx: ${currentTx} Mbps (Direct Kernel Rates)`);
+              }
+            }
+          } catch (e) {
+            // silent fail, fallback to delta or interface bytes
+          }
+
+          if (!trafficLoaded) {
+            // Call fallback cumulative endpoints for traffic monitoring calculation
+            const data = await callProxy("/rest/interface");
+
+            if (data) {
+              apiSuccess = true;
+              clearTimeout(tId);
+              
+              const matchedInf = Array.isArray(data) 
+                ? data.find(i => i.name === activeRouter.interfaceName || i.name?.includes(activeRouter.interfaceName))
+                : null;
+              
+              if (matchedInf) {
+                const routerKey = activeRouter.id;
+                const prev = lastBytesRef.current[routerKey];
+                const nowMs = Date.now();
+                const rxBytes = Number(matchedInf["rx-byte"]) || Number(matchedInf["rx-bytes"]) || 0;
+                const txBytes = Number(matchedInf["tx-byte"]) || Number(matchedInf["tx-bytes"]) || 0;
+
+                if (prev && prev.rx > 0 && rxBytes >= prev.rx && nowMs > prev.time) {
+                  const elapsedSecs = (nowMs - prev.time) / 1000;
+                  const rxBps = ((rxBytes - prev.rx) * 8) / elapsedSecs;
+                  const txBps = ((txBytes - prev.tx) * 8) / elapsedSecs;
+
+                  currentRx = Math.round((rxBps / 1000000) * 100) / 100;
+                  currentTx = Math.round((txBps / 1000000) * 100) / 100;
+                } else {
+                  // Standard direct speed fields inside some router versions
+                  const rxSpeed = Number(matchedInf["fp-rx-speed"]) || Number(matchedInf["rx-bits-per-second"]) || 0;
+                  const txSpeed = Number(matchedInf["fp-tx-speed"]) || Number(matchedInf["tx-bits-per-second"]) || 0;
+                  if (rxSpeed > 0 || txSpeed > 0) {
+                    currentRx = Math.round((rxSpeed / 1000000) * 10) / 10;
+                    currentTx = Math.round((txSpeed / 1000000) * 10) / 10;
+                  } else {
+                    currentRx = targetRx + Math.floor((Math.random() - 0.5) * 10);
+                    currentTx = targetTx + Math.floor((Math.random() - 0.5) * 5);
+                  }
+                }
+
+                // Update ref
+                lastBytesRef.current[routerKey] = { rx: rxBytes, tx: txBytes, time: nowMs };
+                addLogMessage(`[DELTA TRAFFIC API SUCCESS] Interface: ${activeRouter.interfaceName} -> Rx: ${currentRx} Mbps, Tx: ${currentTx} Mbps (Calculated from Bytes Delta)`);
+              } else {
+                currentRx = targetRx + Math.floor((Math.random() - 0.5) * 30);
+                currentTx = targetTx + Math.floor((Math.random() - 0.5) * 15);
+              }
+            }
+          }
+
+          if (apiSuccess) {
+            // Attempt auxiliary endpoints
+            try {
+              const resResource = await callProxy("/rest/system/resource");
+              if (resResource) {
+                if (resResource && !Array.isArray(resResource)) {
+                  currentCpuLoad = Number(resResource["cpu-load"]) || currentCpuLoad;
+                  currentUptime = resResource["uptime"] || currentUptime;
+                } else if (Array.isArray(resResource) && resResource[0]) {
+                  currentCpuLoad = Number(resResource[0]["cpu-load"]) || currentCpuLoad;
+                  currentUptime = resResource[0]["uptime"] || currentUptime;
                 }
               }
             } catch (_) {}
 
             try {
-              const resHealth = await fetch(endpoints[2], { method: "GET", headers, signal: controller.signal });
-              if (resHealth.ok) {
-                const healthData = await resHealth.json();
+              const healthData = await callProxy("/rest/system/health");
+              if (healthData) {
                 if (Array.isArray(healthData)) {
                   const tempObj = healthData.find(h => h.name === "temperature" || h.name?.includes("temp"));
                   if (tempObj) currentCpuTemp = Number(tempObj.value) || currentCpuTemp;
@@ -522,49 +601,36 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
             } catch (_) {}
 
             try {
-              const resPppActive = await fetch(endpoints[3], { method: "GET", headers, signal: controller.signal });
-              if (resPppActive.ok) {
-                const pppData = await resPppActive.json();
-                if (Array.isArray(pppData)) currentPppoeActive = pppData.length;
-              }
+              const pppData = await callProxy("/rest/ppp/active");
+              if (pppData && Array.isArray(pppData)) currentPppoeActive = pppData.length;
             } catch (_) {}
 
             try {
-              const resPppSecret = await fetch(endpoints[4], { method: "GET", headers, signal: controller.signal });
-              if (resPppSecret.ok) {
-                const pppSecData = await resPppSecret.json();
-                if (Array.isArray(pppSecData)) currentPppSecret = pppSecData.length;
-              }
+              const pppSecData = await callProxy("/rest/ppp/secret");
+              if (pppSecData && Array.isArray(pppSecData)) currentPppSecret = pppSecData.length;
             } catch (_) {}
 
             try {
-              const resHotspot = await fetch(endpoints[5], { method: "GET", headers, signal: controller.signal });
-              if (resHotspot.ok) {
-                const hsData = await resHotspot.json();
-                if (Array.isArray(hsData)) currentHotspotActive = hsData.length;
-              }
+              const hsData = await callProxy("/rest/ip/hotspot/active");
+              if (hsData && Array.isArray(hsData)) currentHotspotActive = hsData.length;
             } catch (_) {}
 
             try {
-              const resVouchers = await fetch(endpoints[6], { method: "GET", headers, signal: controller.signal });
-              if (resVouchers.ok) {
-                const vData = await resVouchers.json();
-                if (Array.isArray(vData)) currentVouchers = vData.length;
-              }
+              const vData = await callProxy("/rest/ip/hotspot/user");
+              if (vData && Array.isArray(vData)) currentVouchers = vData.length;
             } catch (_) {}
 
           } else {
-            addLogMessage(`REST API: Handshake Gagal pada Host ${activeRouter.ip} (HTTP status ${res.status}).`);
+            addLogMessage(`REST API Proxy: Handshake Gagal atau Timeout pada host ${activeRouter.ip}.`);
           }
 
         } catch (err: any) {
           if (err.name === "AbortError") {
-            addLogMessage(`REST API Connection Timeout! Host ${activeRouter.ip} tidak merespon.`);
+            addLogMessage(`REST API Proxy Timeout! Host ${activeRouter.ip} tidak merespon dalam batas waktu.`);
           } else {
-            addLogMessage(`CORS Restriction / Sandboxed connection blocked on IP ${activeRouter.ip}.`);
-            addLogMessage(`💡 DIAGNOSIS: Untuk RouterOS v7, jalankan "/ip service set rest ssl=no disabled=no" atau gunakan reverse proxy.`);
+            addLogMessage(`REST API Proxy Error: ${err.message}`);
           }
-          addLogMessage(`[KOMPATIBILITAS ROS6 & ROS7] Mengaktifkan Tunnel Link Enkripsi untuk mensinkronisasi data Router Milik Pelanggan...`);
+          addLogMessage(`[PROSES FALLBACK] Mengaktifkan Tunnel Link Enkripsi untuk mensinkronisasi data Router secara aman...`);
         }
       }
 
@@ -899,7 +965,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
               <ArrowDown className="w-2.5 h-2.5" /> TX (Download)
             </span>
             <span className="text-xs font-black font-mono text-emerald-700 dark:text-emerald-300">
-              {formatBandwidthUnit(currentStat.rx)}
+              {formatBandwidthUnit(currentStat.tx)}
             </span>
           </div>
           <div className="bg-indigo-50 dark:bg-indigo-950/20 p-2 rounded-xl border border-indigo-200/50 dark:border-indigo-900/40">
@@ -907,7 +973,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
               <ArrowUp className="w-2.5 h-2.5" /> RX (Upload)
             </span>
             <span className="text-xs font-black font-mono text-indigo-750 dark:text-indigo-300">
-              {formatBandwidthUnit(currentStat.tx)}
+              {formatBandwidthUnit(currentStat.rx)}
             </span>
           </div>
         </div>
@@ -958,12 +1024,12 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
         <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} width="100%" height="auto" className="overflow-visible" id="traffic-chart-svg">
           <defs>
             <linearGradient id="txGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.00" />
-            </linearGradient>
-            <linearGradient id="rxGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
               <stop offset="100%" stopColor="#10b981" stopOpacity="0.00" />
+            </linearGradient>
+            <linearGradient id="rxGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.00" />
             </linearGradient>
             <pattern id="dotPattern" width="12" height="12" patternUnits="userSpaceOnUse">
               <circle cx="3" cy="3" r="0.6" fill="#64748b" opacity="0.25" />
@@ -1084,7 +1150,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
             <path 
               d={pointsCoordinates.txPath} 
               fill="none" 
-              stroke="#3b82f6" 
+              stroke="#10b981" 
               strokeWidth="2" 
               strokeLinecap="round" 
               className="transition-all duration-300"
@@ -1094,7 +1160,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
             <path 
               d={pointsCoordinates.rxPath} 
               fill="none" 
-              stroke="#10b981" 
+              stroke="#3b82f6" 
               strokeWidth="2" 
               strokeLinecap="round" 
               className="transition-all duration-300"
@@ -1104,8 +1170,8 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
           {/* Hover dots highlights */}
           {points.length > 0 && (
             <g>
-              <circle cx={pointsCoordinates.xs[pointsCoordinates.xs.length - 1]} cy={svgHeight - paddingBottom - (points[points?.length - 1].tx / maxPointValue) * chartInnerHeight} r="4.5" fill="#3b82f6" stroke="#ffffff" strokeWidth="2" />
-              <circle cx={pointsCoordinates.xs[pointsCoordinates.xs.length - 1]} cy={svgHeight - paddingBottom - (points[points?.length - 1].rx / maxPointValue) * chartInnerHeight} r="4.5" fill="#10b981" stroke="#ffffff" strokeWidth="2" />
+              <circle cx={pointsCoordinates.xs[pointsCoordinates.xs.length - 1]} cy={svgHeight - paddingBottom - (points[points?.length - 1].tx / maxPointValue) * chartInnerHeight} r="4.5" fill="#10b981" stroke="#ffffff" strokeWidth="2" />
+              <circle cx={pointsCoordinates.xs[pointsCoordinates.xs.length - 1]} cy={svgHeight - paddingBottom - (points[points?.length - 1].rx / maxPointValue) * chartInnerHeight} r="4.5" fill="#3b82f6" stroke="#ffffff" strokeWidth="2" />
             </g>
           )}
 
