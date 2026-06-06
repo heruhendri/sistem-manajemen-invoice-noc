@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Client, Invoice, BookkeepingRecord, ProfitLossReport } from "../types";
 import { formatIDR, getIndonesianMonthName, exportProfitLossPDF, exportBookkeepingExcel } from "../utils/exportFiles";
 import { 
@@ -33,6 +33,15 @@ interface DashboardViewProps {
 export default function DashboardView({ clients, invoices, bookkeeping, onNavigate, onResetData, onUpdateClient }: DashboardViewProps) {
   const [selectedYear, setSelectedYear] = useState<string>("2026");
   const [hoveredReportMonth, setHoveredReportMonth] = useState<string | null>(null);
+  const [liveTick, setLiveTick] = useState(0);
+
+  // Memicu pembaruan real-time setiap 3 detik untuk simulasi trafik dan status SLA
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveTick(t => t + 1);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Detect whether database contains mock dummy records
   const hasDummyData = useMemo(() => {
@@ -492,10 +501,14 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
                           {client.company || client.name}
                         </p>
                         <p className="text-[10px] text-slate-500" id={`log-${client.id}-sub`}>
-                          {hasUnpaid 
-                            ? `Status: Aktif. Terdapat tagihan outstanding belum lunas.`
-                            : `Terhubung via ${client.mikrotikIp || "IP DHCP"}:${client.mikrotikPort || 8728}. Monitoring aktif.`}
+                          {`Terhubung: ${client.mikrotikIp || "IP DHCP"}:${client.mikrotikPort || 8728}`}
                         </p>
+                      </div>
+                      <div className="ml-auto text-right">
+                        <span className="text-[10px] font-mono font-bold text-emerald-600 block">
+                          {Math.floor(Math.random() * 15 + 5)}ms
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono">{(Math.random() * 5).toFixed(1)} Mbps</span>
                       </div>
                     </div>
                   );

@@ -360,7 +360,7 @@ export default function CustomerPortalView({
             </div>
 
             {/* Simulated Live Customer Router Diagnostik Panel */}
-            {(() => {
+            {useMemo(() => {
               const companySlug = simulatedClient.company.toLowerCase().replace(/[^a-z0-9]/g, "");
               const secretCount = simulatedClient.mtPppoeSecretCount || 10;
               const activeCount = simulatedClient.mtActivePppoeCount || 6;
@@ -374,7 +374,7 @@ export default function CustomerPortalView({
                   username: `${companySlug}_user_${index + 1}`,
                   service: "pppoe",
                   profile: index % 2 === 0 ? "SLA_Premium_50M" : "SLA_Standard_20M",
-                  uptime: isOnline ? `${index + 2}j ${(index * 8) % 60}m 15d` : "-",
+                  uptime: isOnline ? `${index + 2}j ${((index * 8) + realtimeTick) % 60}m 15d` : "-",
                   ipAddress: `10.50.${10 + (simulatedClient.id === "1" ? 1 : 2) * 5}.${100 + index}`,
                   mac: `00:0C:42:F1:C${index}:${10 + index}`,
                   status: isOnline ? "Active" : "Offline",
@@ -388,8 +388,8 @@ export default function CustomerPortalView({
                   ipAddress: `192.168.88.${50 + index}`,
                   mac: `B4:75:0E:C8:42:0${index}`,
                   uptime: `${index * 15 + 4}m 22s`,
-                  bytesIn: `${((index + 1) * 3.4).toFixed(1)} MB`,
-                  bytesOut: `${((index + 1) * 11.2).toFixed(1)} MB`
+                  bytesIn: `${((index + 1) * 3.4 + (realtimeTick * 0.1)).toFixed(1)} MB`,
+                  bytesOut: `${((index + 1) * 11.2 + (realtimeTick * 0.5)).toFixed(1)} MB`
                 };
               });
  
@@ -402,7 +402,7 @@ export default function CustomerPortalView({
                        <div>
                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block leading-none">Status Koneksi Core</span>
                          <h4 className="text-xs font-bold text-slate-200 mt-1 flex items-center gap-1">
-                           🌐 Host IP: {simulatedClient.mikrotikIp || "10.50.24.15 (Simulasi)"}
+                          🌐 Host IP: {simulatedClient.mikrotikIp || "Local Connection"}
                          </h4>
                        </div>
                     </div>
@@ -423,7 +423,7 @@ export default function CustomerPortalView({
                       {/* Port 1 - WAN */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">P1 (WAN)</span>
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping absolute top-1 right-1"></div>
+                        <div className={`w-2 h-2 rounded-full bg-emerald-500 absolute top-1 right-1 ${realtimeTick % 2 === 0 ? 'animate-ping' : ''}`}></div>
                         <div className="w-2 h-2 rounded-full bg-emerald-500 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-emerald-400">1 Gbps</span>
                       </div>
@@ -431,7 +431,7 @@ export default function CustomerPortalView({
                       {/* Port 2 - PPPoE Active */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">P2 (PPPoE)</span>
-                        <div className="w-2 h-2 rounded-full bg-emerald-555 bg-emerald-400 animate-pulse absolute top-1 right-1"></div>
+                        <div className={`w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1 ${realtimeTick % 3 === 0 ? 'animate-pulse' : ''}`}></div>
                         <div className="w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-emerald-400">UP</span>
                       </div>
@@ -439,7 +439,7 @@ export default function CustomerPortalView({
                       {/* Port 3 - Hotspot */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">P3 (VLAN)</span>
-                        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse absolute top-1 right-1"></div>
+                        <div className={`w-2 h-2 rounded-full bg-amber-500 absolute top-1 right-1 ${realtimeTick % 4 === 0 ? 'animate-pulse' : ''}`}></div>
                         <div className="w-2 h-2 rounded-full bg-amber-500 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-amber-400">UP</span>
                       </div>
@@ -461,7 +461,7 @@ export default function CustomerPortalView({
                       {/* Port 6 - SFP+ */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">SFP+</span>
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse absolute top-1 right-1"></div>
+                        <div className={`w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1 ${realtimeTick % 2 !== 0 ? 'animate-pulse' : ''}`}></div>
                         <div className="w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-blue-400">10G</span>
                       </div>
@@ -473,9 +473,9 @@ export default function CustomerPortalView({
                     <div className="bg-slate-850 p-2 rounded-lg border border-slate-800/80">
                       <div className="text-slate-400 text-[8px] font-mono uppercase font-bold tracking-wider mb-0.5">📉 BEBAN CPU</div>
                       <div className="font-extrabold text-indigo-300 font-mono text-[11px] flex justify-center items-center gap-1">
-                        <span>8%</span>
+                        <span>{8 + (realtimeTick % 5)}%</span>
                         <div className="w-8 h-1 bg-slate-800 rounded-full overflow-hidden">
-                          <div className="w-[8%] h-full bg-indigo-400 rounded-full"></div>
+                          <div className="h-full bg-indigo-400 rounded-full" style={{ width: `${8 + (realtimeTick % 5)}%` }}></div>
                         </div>
                       </div>
                     </div>
@@ -524,7 +524,7 @@ export default function CustomerPortalView({
                         <div key={item.username} className="flex items-center justify-between p-2 py-1.5 text-[9.5px] bg-slate-900 border border-slate-850 rounded-lg shadow-xs hover:border-emerald-500/30 transition-all font-mono">
                           <div>
                             <div className="font-extrabold text-slate-100 flex items-center gap-1.5 text-[10px]">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                              <span className={`w-1.5 h-1.5 rounded-full bg-emerald-500 ${realtimeTick % 2 === 0 ? 'animate-pulse' : ''}`}></span>
                               {item.username}
                             </div>
                             <span className="text-slate-400 block text-[8px] mt-0.5">IP: {item.ipAddress} • {item.profile}</span>
@@ -568,7 +568,7 @@ export default function CustomerPortalView({
                         <div key={item.username} className="flex items-center justify-between p-2 py-1.5 text-[9.5px] bg-slate-900 border border-slate-850 rounded-lg shadow-xs hover:border-amber-500/30 transition-all font-mono">
                           <div>
                             <div className="font-extrabold text-slate-100 flex items-center gap-1.5 text-[10px]">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                              <span className={`w-1.5 h-1.5 rounded-full bg-amber-500 ${realtimeTick % 3 === 0 ? 'animate-pulse' : ''}`}></span>
                               {item.username}
                             </div>
                             <span className="text-slate-400 block text-[8px] mt-0.5">IP: {item.ipAddress} • {item.uptime}</span>
@@ -587,7 +587,7 @@ export default function CustomerPortalView({
                   </div>
                 </div>
               );
-            })()}
+            }, [simulatedClient, realtimeTick, activeCoreTab])}
 
             {/* Transaction overview metrics */}
             <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-3" id="portal-metrics-overview">
