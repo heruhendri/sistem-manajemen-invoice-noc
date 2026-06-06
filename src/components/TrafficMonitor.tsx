@@ -121,6 +121,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
   const [webhookUrl, setWebhookUrl] = useState<string>(() => {
     return localStorage.getItem("noc_alert_webhook_url") || "";
   });
+  const [fetchedInterfaces, setFetchedInterfaces] = useState<string[]>([]);
 
   // Active sub-tab inside the monitoring settings block
   const [monitoringSubTab, setMonitoringSubTab] = useState<"diagnostics" | "routers" | "alarms" | "console">("diagnostics");
@@ -219,6 +220,42 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
       localStorage.setItem("noc_active_router_id", activeRouterId);
     }
   }, [activeRouterId]);
+
+  // Mengambil daftar interface riil dari MikroTik saat router aktif berubah
+  useEffect(() => {
+    if (!useRealApi || !activeRouter.ip || !isPlaying) {
+      setFetchedInterfaces([]);
+      return;
+    }
+
+    const fetchInterfacesList = async () => {
+      try {
+        const res = await fetch("/api/mikrotik/proxy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            host: activeRouter.ip,
+            port: activeRouter.port,
+            user: activeRouter.user,
+            password: (activeRouter as any).password || "",
+            endpoint: "/rest/interface",
+            method: "GET",
+            version: (activeRouter as any).version || "ROS7"
+          })
+        });
+        
+        if (res.ok) {
+          const body = await res.json();
+          if (body.success && Array.isArray(body.data)) {
+            const names = body.data.map((i: any) => i.name).filter(Boolean);
+            if (names.length > 0) setFetchedInterfaces(names);
+          }
+        }
+      } catch (_) {}
+    };
+
+    fetchInterfacesList();
+  }, [activeRouter.id, useRealApi, isPlaying]);
 
   // Merge default core backbones, customers with router config, and custom added routers
   const selectableRouters = useMemo(() => {
@@ -896,6 +933,7 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
                   setActiveRouterId(e.target.value);
                   setStressTestMode(false);
                   setIsAlertDismissed(false);
+                  setFetchedInterfaces([]);
                   addLogMessage(`Switched monitoring active device to router Registry: "${e.target.value}"`);
                 }}
                 className="w-full text-xs bg-white dark:bg-[#070b13] border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-lg p-2 font-bold focus:outline-blue-500 cursor-pointer text-ellipsis overflow-hidden font-sans"
@@ -927,18 +965,29 @@ export default function TrafficMonitor({ title = "Live Traffic Monitor", isAdmin
                       return r;
                     });
                     saveCustomRouters(updated);
+                  } else if (activeRouter.type === "client" && onUpdateClient && activeClient) {
+                    onUpdateClient({
+                      ...activeClient,
+                      mikrotikInterface: updatedInterface
+                    });
                   }
                   addLogMessage(`Selected interface updated to: ${updatedInterface}`);
                 }}
                 className="w-full text-xs bg-white dark:bg-[#070b13] border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-lg p-2 font-semibold focus:outline-blue-500 cursor-pointer"
                 id="traffic-port-selector"
               >
-                {INTERFACES.map(inf => (
-                  <option key={inf.id} value={inf.id}>
-                    {inf.name}
-                  </option>
-                ))}
-                {activeRouter.type !== "core" && activeRouter.interfaceName !== "ether1-wan" && (
+                {fetchedInterfaces.length > 0 ? (
+                  fetchedInterfaces.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))
+                ) : (
+                  INTERFACES.map(inf => (
+                    <option key={inf.id} value={inf.id}>
+                      {inf.name}
+                    </option>
+                  ))
+                )}
+                {activeRouter.interfaceName && !fetchedInterfaces.includes(activeRouter.interfaceName) && !INTERFACES.some(i => i.id === activeRouter.interfaceName) && (
                   <option value={activeRouter.interfaceName}>{activeRouter.interfaceName} (Kustom)</option>
                 )}
               </select>

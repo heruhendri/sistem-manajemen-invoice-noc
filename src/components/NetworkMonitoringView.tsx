@@ -231,6 +231,43 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
     setApiFetchStatus("idle");
   }, [selectedHostId]);
 
+  // Otomatis mengambil daftar interface saat host dipilih untuk sinkronisasi dropdown
+  useEffect(() => {
+    if (!activeHostDetails || !activeHostDetails.mikrotikIp) return;
+    
+    const fetchInterfaces = async () => {
+       try {
+         const res = await fetch("/api/mikrotik/proxy", {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify({
+             host: activeHostDetails.mikrotikIp,
+             port: activeHostDetails.mikrotikPort || 8728,
+             user: activeHostDetails.mikrotikUser || "admin",
+             password: activeHostDetails.mikrotikPassword || "",
+             endpoint: "/rest/interface",
+             method: "GET",
+             version: activeHostDetails.mikrotikVersion || "ROS7"
+           })
+         });
+         if (res.ok) {
+           const data = await res.json();
+           if (data.success && Array.isArray(data.data)) {
+             setLiveInterfaces(data.data.map((inf: any) => ({
+                name: inf.name || "unknown",
+                type: inf.type || "ether",
+                mtu: Number(inf.mtu) || 1500,
+                rx: "0 Mbps",
+                tx: "0 Mbps",
+                status: inf.running === "true" || inf.running === true ? "Running (Up)" : "No Carrier (Down)"
+             })));
+           }
+         }
+       } catch (e) {}
+    };
+    fetchInterfaces();
+  }, [activeHostDetails?.id]);
+
   // Synchronize selectedMonitoringInterface with the active host's default interface or first available interface
   useEffect(() => {
     if (activeHostDetails) {
