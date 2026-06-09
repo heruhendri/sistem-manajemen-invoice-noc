@@ -47,6 +47,9 @@ if [ -d "$DIR_NAME" ]; then
     rm -rf "$DIR_NAME"
 fi
 
+echo -e "${GREEN}0. Konfigurasi Alamat Akses Aplikasi...${NC}"
+read -p "Masukkan IP atau Domain yang akan digunakan untuk mengakses aplikasi (misal: 192.168.1.100 atau myapp.com, kosongkan untuk 'localhost'): " DOMAIN_INPUT < /dev/tty
+
 git clone $REPO_URL
 cd $DIR_NAME
 
