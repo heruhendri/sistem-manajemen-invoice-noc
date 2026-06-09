@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { Client, Invoice, BookkeepingRecord, ProfitLossReport } from "../types";
 import { formatIDR, getIndonesianMonthName, exportProfitLossPDF, exportBookkeepingExcel } from "../utils/exportFiles";
 import { 
@@ -16,10 +16,61 @@ import {
   ArrowDownRight,
   QrCode,
   CreditCard,
-  History
+  History,
+  Award
 } from "lucide-react";
 import { motion } from "motion/react";
 import TrafficMonitor from "./TrafficMonitor";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Cell
+} from "recharts";
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+}
+
+const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
+  if (active && payload && payload.length) {
+    const rev = payload[0]?.value || 0;
+    const exp = payload[1]?.value || 0;
+    const net = rev - exp;
+    return (
+      <div className="bg-slate-900 border border-slate-805 p-3 rounded-xl shadow-lg font-mono text-[10.5px] text-white">
+        <p className="font-bold text-sky-400 mb-1.5">{label}</p>
+        <div className="space-y-1">
+          <p className="flex justify-between gap-4">
+            <span className="text-slate-400 font-sans">Pendapatan:</span>
+            <span className="font-bold text-blue-400">
+              {formatIDR(rev)}
+            </span>
+          </p>
+          <p className="flex justify-between gap-4">
+            <span className="text-slate-400 font-sans">Pengeluaran:</span>
+            <span className="font-bold text-slate-400">
+              {formatIDR(exp)}
+            </span>
+          </p>
+          <div className="border-t border-slate-800 mt-1.5 pt-1.5 flex justify-between gap-4 font-bold">
+            <span className="font-sans text-slate-350">Laba Bersih:</span>
+            <span className={net >= 0 ? "text-emerald-400" : "text-rose-450"}>
+              {formatIDR(net)}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 interface DashboardViewProps {
   clients: Client[];
@@ -33,15 +84,6 @@ interface DashboardViewProps {
 export default function DashboardView({ clients, invoices, bookkeeping, onNavigate, onResetData, onUpdateClient }: DashboardViewProps) {
   const [selectedYear, setSelectedYear] = useState<string>("2026");
   const [hoveredReportMonth, setHoveredReportMonth] = useState<string | null>(null);
-  const [liveTick, setLiveTick] = useState(0);
-
-  // Memicu pembaruan real-time setiap 3 detik untuk simulasi trafik dan status SLA
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setLiveTick(t => t + 1);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Detect whether database contains mock dummy records
   const hasDummyData = useMemo(() => {
@@ -111,19 +153,88 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
     };
   }, [invoices, bookkeeping]);
 
-  // Group by months for Laba Rugi Report
-  const profitLossReports = useMemo((): ProfitLossReport[] => {
-    const monthlyData: { [key: string]: { revenue: number; expenses: number } } = {
-      "2026-03": { revenue: 0, expenses: 0 },
-      "2026-04": { revenue: 0, expenses: 0 },
-      "2026-05": { revenue: 0, expenses: 0 },
-      "2026-06": { revenue: 0, expenses: 0 }
-    };
+  // Calculate Top 5 Highest Billing Clients from Invoice Data
+  const topClientsData = useMemo(() => {
+    const clientBillingMap: Record<string, { id: string; name: string; total: number; count: number; paid: number }> = {};
 
-    // Calculate from official general bookkeeping register
+    invoices.forEach(inv => {
+      const clientId = inv.clientId;
+      const amount = inv.amount || 0;
+      const isPaid = inv.status === "Paid";
+      
+      let clientName = inv.clientCompany || inv.clientName || "Klien Tidak Dikenal";
+      // Try to find the live client record for the absolute most accurate name
+      const liveClient = clients.find(c => c.id === clientId);
+      if (liveClient) {
+        clientName = liveClient.company || liveClient.name;
+      }
+
+      if (!clientBillingMap[clientId]) {
+        clientBillingMap[clientId] = {
+          id: clientId,
+          name: clientName,
+          total: 0,
+          count: 0,
+          paid: 0
+        };
+      }
+      
+      clientBillingMap[clientId].total += amount;
+      clientBillingMap[clientId].count += 1;
+      if (isPaid) {
+        clientBillingMap[clientId].paid += amount;
+      }
+    });
+
+    return Object.values(clientBillingMap)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+  }, [invoices, clients]);
+
+  // Generate the last 6 months dynamically based on latest date in bookkeeping or today's month
+  const last6MonthsList = useMemo(() => {
+    const list: string[] = [];
+    const now = new Date();
+    let baseYear = 2026;
+    let baseMonth = 5; // June is 5 (0-indexed)
+    
+    if (bookkeeping.length > 0) {
+      const sortedRecords = [...bookkeeping].sort((a, b) => b.date.localeCompare(a.date));
+      const latestDateStr = sortedRecords[0].date;
+      const parts = latestDateStr.split("-");
+      if (parts.length >= 2) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        if (!isNaN(y) && !isNaN(m)) {
+          baseYear = y;
+          baseMonth = m;
+        }
+      }
+    } else {
+      baseYear = now.getFullYear();
+      baseMonth = now.getMonth();
+    }
+    
+    for (let i = 5; i >= 0; i--) {
+      const targetDate = new Date(baseYear, baseMonth - i, 1);
+      const yyyy = targetDate.getFullYear();
+      const mm = String(targetDate.getMonth() + 1).padStart(2, "0");
+      list.push(`${yyyy}-${mm}`);
+    }
+    return list;
+  }, [bookkeeping]);
+
+  // Compute last 6 months of profit loss for the Recharts Bar Chart
+  const profitLossLast6Months = useMemo((): ProfitLossReport[] => {
+    const monthlyData: { [key: string]: { revenue: number; expenses: number } } = {};
+    
+    last6MonthsList.forEach(m => {
+      monthlyData[m] = { revenue: 0, expenses: 0 };
+    });
+
     bookkeeping.forEach(rec => {
-      const month = rec.date.substring(0, 7); // YYYY-MM
-      if (monthlyData[month]) {
+      const month = rec.date.substring(0, 7);
+      if (monthlyData[month] !== undefined) {
         if (rec.type === "Expense") {
           monthlyData[month].expenses += rec.amount;
         } else {
@@ -132,10 +243,6 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
       }
     });
 
-    // Make sure we count June unpaid invoices? 
-    // Wait! Traditional Cash Book bookkeeping (pembukuan berbasis kas) records income when money arrives (Status Paid in Invoice leads to Bookkeeping entries). 
-    // To make it look extremely sync'd, we check that all "Paid" invoices are recorded in bookkeeping under "Pendapatan Jasa NOC".
-    // We can compile the report based on these grouped values:
     return Object.entries(monthlyData)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, data]) => ({
@@ -145,7 +252,46 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
         expenses: data.expenses,
         netProfit: data.revenue - data.expenses
       }));
-  }, [bookkeeping]);
+  }, [bookkeeping, last6MonthsList]);
+
+  // Group by months for Laba Rugi Report of the selected year
+  const profitLossReports = useMemo((): ProfitLossReport[] => {
+    const monthlyData: { [key: string]: { revenue: number; expenses: number } } = {};
+    
+    const yearPrefix = `${selectedYear}-`;
+    
+    // Default priming for 2026
+    if (selectedYear === "2026") {
+      monthlyData["2026-03"] = { revenue: 0, expenses: 0 };
+      monthlyData["2026-04"] = { revenue: 0, expenses: 0 };
+      monthlyData["2026-05"] = { revenue: 0, expenses: 0 };
+      monthlyData["2026-06"] = { revenue: 0, expenses: 0 };
+    }
+    
+    bookkeeping.forEach(rec => {
+      if (rec.date.startsWith(yearPrefix)) {
+        const month = rec.date.substring(0, 7);
+        if (!monthlyData[month]) {
+          monthlyData[month] = { revenue: 0, expenses: 0 };
+        }
+        if (rec.type === "Expense") {
+          monthlyData[month].expenses += rec.amount;
+        } else {
+          monthlyData[month].revenue += rec.amount;
+        }
+      }
+    });
+
+    return Object.entries(monthlyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => ({
+        month,
+        monthName: getIndonesianMonthName(month),
+        revenue: data.revenue,
+        expenses: data.expenses,
+        netProfit: data.revenue - data.expenses
+      }));
+  }, [bookkeeping, selectedYear]);
 
   // Find max value in profitLossReports for SVG scaling
   const maxChartValue = useMemo(() => {
@@ -331,129 +477,81 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
             );
           })()}
 
-          {/* SVG Custom Interactive Chart */}
-          <div className="w-full h-64 bg-slate-50/50 rounded-xl p-2 flex flex-col justify-between" id="chart-canvas-container">
-            {/* SVG Elements */}
-            <div className="flex-1 relative" id="chart-svg">
-              <svg className="w-full h-full" viewBox="0 0 500 180" id="custom-bar-chart">
-                {/* Horizontal Guide Lines */}
-                <line x1="30" y1="20" x2="480" y2="20" stroke="#f1f5f9" strokeWidth="1" />
-                <line x1="30" y1="60" x2="480" y2="60" stroke="#f1f5f9" strokeWidth="1" />
-                <line x1="30" y1="100" x2="480" y2="100" stroke="#f1f5f9" strokeWidth="1" />
-                <line x1="30" y1="140" x2="480" y2="140" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3" />
-
-                {/* Draw Columns for each month */}
-                {profitLossReports.map((item, index) => {
-                  const columnWidth = 100;
-                  const startX = 40 + index * columnWidth;
-                  
-                  // Height scale ratio
-                  const rHeight = (item.revenue / maxChartValue) * 120;
-                  const eHeight = (item.expenses / maxChartValue) * 120;
-
-                  // Bar Y coordinates (origin is y=140 since y=140 is bottom baseline)
-                  const rY = 140 - rHeight;
-                  const eY = 140 - eHeight;
-
-                  return (
-                    <g 
-                      key={item.month} 
-                      id={`month-g-${item.month}`}
-                      onMouseEnter={() => setHoveredReportMonth(item.month)}
-                      onMouseLeave={() => setHoveredReportMonth(null)}
-                      className="cursor-pointer transition-all duration-200"
-                    >
-                      {/* Highlight underlay */}
-                      {hoveredReportMonth === item.month && (
-                        <rect
-                          x={startX - 10}
-                          y="10"
-                          width="60"
-                          height="140"
-                          fill="rgba(37, 99, 235, 0.05)"
-                          rx="4"
-                        />
-                      )}
-                      
-                      {/* Revenue Bar */}
-                      <rect 
-                        x={startX} 
-                        y={rY} 
-                        width="18" 
-                        height={rHeight > 0 ? rHeight : 1} 
-                        fill={hoveredReportMonth === item.month ? "#3b82f6" : "#2563eb"} 
-                        rx="3"
-                        className="transition-all hover:brightness-110 cursor-pointer"
-                      >
-                        <title>{`Pendapatan ${item.monthName}: ${formatIDR(item.revenue)}`}</title>
-                      </rect>
-                      {/* Expense Bar */}
-                      <rect 
-                        x={startX + 22} 
-                        y={eY} 
-                        width="18" 
-                        height={eHeight > 0 ? eHeight : 1} 
-                        fill={hoveredReportMonth === item.month ? "#94a3b8" : "#64748b"} 
-                        rx="3"
-                        className="transition-all hover:brightness-110 cursor-pointer"
-                      >
-                        <title>{`Pengeluaran ${item.monthName}: ${formatIDR(item.expenses)}`}</title>
-                      </rect>
-
-                      {/* Net Profit Dot Indicator */}
-                      {/* Calculate net profit projection dot */}
-                      {(() => {
-                        const netHeight = ((item.revenue - item.expenses) / maxChartValue) * 120;
-                        const netY = 140 - netHeight;
-                        const isPositive = (item.revenue - item.expenses) >= 0;
-                        return (
-                          <circle 
-                            cx={startX + 20} 
-                            cy={netY} 
-                            r="4" 
-                            fill={isPositive ? "#10b981" : "#ef4444"} 
-                            stroke="#ffffff" 
-                            strokeWidth="1.5"
-                          >
-                            <title>{`Laba Bersih: ${formatIDR(item.revenue - item.expenses)}`}</title>
-                          </circle>
-                        );
-                      })()}
-
-                      {/* Month Text Anchor */}
-                      <text 
-                        x={startX + 20} 
-                        y="156" 
-                        fontSize="9" 
-                        textAnchor="middle" 
-                        fontWeight="semibold" 
-                        fill="#475569"
-                        className="font-sans"
-                      >
-                        {item.monthName.split(" ")[0]}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
+          {/* Recharts Bar Chart Visualizer */}
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+            className="w-full h-80 bg-slate-50/50 dark:bg-slate-900/10 rounded-xl p-4 flex flex-col justify-between border border-slate-100 dark:border-slate-800/30 shadow-xs" 
+            id="chart-canvas-container"
+          >
+            <div className="flex-1 w-full min-h-0" id="chart-recharts-wrap">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={profitLossLast6Months}
+                  margin={{ top: 10, right: 10, left: 20, bottom: 5 }}
+                  onMouseMove={(state: any) => {
+                    const activePayload = state ? (state.activePayload || (state as any).activePayload) : undefined;
+                    if (activePayload && activePayload.length > 0) {
+                      const month = activePayload[0].payload.month;
+                      if (hoveredReportMonth !== month) {
+                        setHoveredReportMonth(month);
+                      }
+                    } else {
+                      if (hoveredReportMonth !== null) {
+                        setHoveredReportMonth(null);
+                      }
+                    }
+                  }}
+                  onMouseLeave={() => setHoveredReportMonth(null)}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#cbd5e1" strokeOpacity={0.4} />
+                  <XAxis 
+                    dataKey="monthName" 
+                    tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }}
+                    tickFormatter={(value) => value.split(" ")[0]}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 9, fill: '#64748b', fontFamily: 'monospace' }}
+                    tickFormatter={(value) => {
+                      if (value >= 1000000) return `Rp ${(value / 1000000).toFixed(0)}M`;
+                      if (value >= 1000) return `Rp ${(value / 1000).toFixed(0)}k`;
+                      return `Rp ${value}`;
+                    }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <RechartsTooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(37, 99, 235, 0.03)', radius: 4 }} />
+                  <Bar 
+                    name="Pendapatan Jasa NOC" 
+                    dataKey="revenue" 
+                    fill="#3b82f6" 
+                    radius={[4, 4, 0, 0]} 
+                  />
+                  <Bar 
+                    name="Beban Operational" 
+                    dataKey="expenses" 
+                    fill="#94a3b8" 
+                    radius={[4, 4, 0, 0]} 
+                  />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
 
             {/* Chart Legend */}
-            <div className="flex justify-center gap-5 text-[10px] text-slate-500 border-t border-slate-100 pt-2 font-mono" id="chart-legend">
+            <div className="flex justify-center gap-5 text-[10px] text-slate-500 border-t border-slate-100 dark:border-slate-800/50 pt-2.5 mt-2 font-mono" id="chart-legend">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-blue-600 block"></span>
+                <span className="w-2.5 h-2.5 rounded bg-[#3b82f6] block"></span>
                 Pendapatan Kas (Layanan NOC)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-slate-500 block"></span>
+                <span className="w-2.5 h-2.5 rounded bg-[#94a3b8] block"></span>
                 Biaya Operasi (Server, Lisensi & Gaji)
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-white block"></span>
-                Ujung Laba Bersih Positif
-              </span>
             </div>
-          </div>
+          </motion.div>
         </div>
 
         {/* Live SLA & NOC Event Stream */}
@@ -501,14 +599,10 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
                           {client.company || client.name}
                         </p>
                         <p className="text-[10px] text-slate-500" id={`log-${client.id}-sub`}>
-                          {`Terhubung: ${client.mikrotikIp || "IP DHCP"}:${client.mikrotikPort || 8728}`}
+                          {hasUnpaid 
+                            ? `Status: Aktif. Terdapat tagihan outstanding belum lunas.`
+                            : `Terhubung via ${client.mikrotikIp || "IP DHCP"}:${client.mikrotikPort || 8728}. Monitoring aktif.`}
                         </p>
-                      </div>
-                      <div className="ml-auto text-right">
-                        <span className="text-[10px] font-mono font-bold text-emerald-600 block">
-                          {Math.floor(Math.random() * 15 + 5)}ms
-                        </span>
-                        <span className="text-[9px] text-slate-400 font-mono">{(Math.random() * 5).toFixed(1)} Mbps</span>
                       </div>
                     </div>
                   );
@@ -525,6 +619,141 @@ export default function DashboardView({ clients, invoices, bookkeeping, onNaviga
             >
               Lihat Tagihan Tertunda <ArrowRightIcon className="w-3.5 h-3.5" />
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Top 5 Highest Billing Clients Section */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-4" id="top-billing-clients-section">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3" id="top-clients-hdr">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2" id="top-clients-title">
+              <Award className="w-4 h-4 text-amber-500 shrink-0" /> Analisis Klien Premium (Top 5 Nilai Penagihan)
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5" id="top-clients-subtitle">
+              Peringkat 5 pelanggan dengan total akumulasi tagihan (billing volume) tertinggi berdasarkan seluruh invoice terbit.
+            </p>
+          </div>
+          <span className="text-[10px] uppercase font-mono font-bold bg-amber-50 text-amber-700 px-2.5 py-1 rounded border border-amber-100/50">
+            Premium Client Leaderboard
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center" id="top-clients-stats-grid">
+          {/* Bar Chart Column */}
+          <motion.div 
+            initial={{ opacity: 0, x: -15 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, ease: "easeOut", delay: 0.15 }}
+            className="lg:col-span-2 bg-slate-50/50 dark:bg-slate-900/10 rounded-xl p-4 border border-slate-100 dark:border-slate-800/30" 
+            id="top-clients-chart-wrap"
+          >
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart
+                layout="vertical"
+                data={topClientsData}
+                margin={{ top: 10, right: 30, left: 10, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#cbd5e1" strokeOpacity={0.4} />
+                <XAxis 
+                  type="number"
+                  tick={{ fontSize: 9, fill: '#64748b', fontFamily: 'monospace' }}
+                  tickFormatter={(value) => {
+                    if (value >= 1000000) return `Rp ${(value / 1000000).toFixed(1)}Jt`;
+                    if (value >= 1000) return `Rp ${(value / 1000).toFixed(0)}Rb`;
+                    return `Rp ${value}`;
+                  }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis 
+                  type="category"
+                  dataKey="name" 
+                  tick={{ fontSize: 10, fill: '#334155', fontWeight: 600 }}
+                  width={140}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <RechartsTooltip 
+                  formatter={(value: any) => [formatIDR(value), "Akumulasi Tagihan"]}
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '12px', fontSize: '11px', color: '#fff', fontFamily: 'monospace' }}
+                />
+                <Bar 
+                  dataKey="total" 
+                  fill="#3b82f6" 
+                  radius={[0, 4, 4, 0]} 
+                  barSize={16}
+                >
+                  {topClientsData.map((entry, index) => {
+                    const colors = ["#2563eb", "#3b82f6", "#60a5fa", "#818cf8", "#a78bfa"];
+                    return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </motion.div>
+
+          {/* List and insights Column */}
+          <div className="space-y-4" id="top-clients-insights">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Daftar Kontribusi Pelanggan</h3>
+            <div className="space-y-2.5" id="top-clients-list">
+              {topClientsData.length === 0 ? (
+                <p className="text-xs text-slate-400 italic p-4 text-center">Belum ada data tagihan tertunda atau lunas.</p>
+              ) : (
+                topClientsData.map((entry, idx) => {
+                  const rankColors = [
+                    "bg-amber-100 text-amber-700 border-amber-200",
+                    "bg-slate-100 text-slate-700 border-slate-200",
+                    "bg-amber-50 text-amber-655 border-amber-100",
+                    "bg-slate-50 text-slate-500 border-slate-100",
+                    "bg-slate-50 text-slate-500 border-slate-100"
+                  ];
+                  const percentagePaid = entry.total > 0 ? (entry.paid / entry.total) * 100 : 0;
+
+                  return (
+                    <div 
+                      key={entry.id} 
+                      className="p-3 bg-slate-50/60 hover:bg-slate-50 border border-slate-150/70 rounded-xl flex items-center justify-between gap-3 transition-colors"
+                      id={`top-client-item-${entry.id}`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {/* Rank Badge */}
+                        <span className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 border ${rankColors[idx] || "bg-slate-50 text-slate-500"}`}>
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-800 truncate" title={entry.name}>
+                            {entry.name}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            {entry.count} Tagihan • Lunas {percentagePaid.toFixed(0)}%
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-extrabold text-slate-800 font-mono">
+                          {formatIDR(entry.total)}
+                        </p>
+                        <p className="text-[9px] text-emerald-600 font-bold font-mono">
+                          Lunas: {formatIDR(entry.paid)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Micro-insights advice */}
+            {topClientsData.length > 0 && (
+              <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100/50 flex gap-2" id="client-retention-tip">
+                <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-blue-700 leading-normal font-sans">
+                  <strong>Retensi SLA:</strong> 5 mitra besar di atas menyumbang nilai penagihan utama. Prioritaskan kestabilan interkoneksi backbone sfp atau pppoe tunnel mereka untuk mencegah komplain SLA.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

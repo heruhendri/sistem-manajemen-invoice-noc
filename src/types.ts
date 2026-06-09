@@ -139,5 +139,6 @@ export interface BizProfile {
   customPaymentMethods?: CustomPaymentMethod[];
   staticQrisUrl?: string; // Base64 static QRIS image or link
   staticQrisPayload?: string; // QRIS text code
+  otpAuthenticationEnabled?: boolean;
 }
 

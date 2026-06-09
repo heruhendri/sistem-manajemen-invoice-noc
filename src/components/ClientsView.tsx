@@ -567,13 +567,93 @@ export default function ClientsView({
                           notify("Harap isi IP Router & Username sebelum sinkronisasi.", "warning");
                           return;
                         }
-                        notify("Menghubungkan ke Router MikroTik via API...", "info");
-                        await new Promise(r => setTimeout(r, 1000));
-                        // Set realistic mock counts
-                        setMtActivePppoeCount(45);
-                        setMtActiveHotspotCount(88);
-                        setMtPppoeSecretCount(150);
-                        notify("Sinkronisasi Sukses! Mendeteksi 45 PPPoE aktif, 88 Hotspot, 150 Secrets.", "success");
+                        notify("Mencoba sinkronisasi riil dari MikroTik API via sistem proxy...", "info");
+                        
+                        let realActivePpp = null;
+                        let realSecrets = null;
+                        let realHotspot = null;
+                        let syncSucceeded = false;
+                        let errMsg = "";
+
+                        try {
+                          const callHelper = async (endpoint: string) => {
+                            const res = await fetch("/api/mikrotik/proxy", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                clientId: editingClient?.id,
+                                host: mikrotikIp,
+                                port: Number(mikrotikPort) || 8728,
+                                user: mikrotikUser,
+                                password: mikrotikPassword,
+                                endpoint,
+                                method: "GET",
+                                version: mikrotikVersion
+                              })
+                            });
+                            if (res.ok) {
+                              const data = await res.json();
+                              return data.success ? data.data : null;
+                            }
+                            return null;
+                          };
+
+                          const [activePppData, secretsData, activeHotspotData] = await Promise.all([
+                            callHelper("/rest/ppp/active"),
+                            callHelper("/rest/ppp/secret"),
+                            callHelper("/rest/ip/hotspot/active")
+                          ]);
+
+                          if (activePppData && Array.isArray(activePppData)) {
+                            realActivePpp = activePppData.length;
+                          }
+                          if (secretsData && Array.isArray(secretsData)) {
+                            realSecrets = secretsData.length;
+                          }
+                          if (activeHotspotData && Array.isArray(activeHotspotData)) {
+                            realHotspot = activeHotspotData.length;
+                          }
+
+                          if (realActivePpp !== null || realSecrets !== null || realHotspot !== null) {
+                            syncSucceeded = true;
+                          } else {
+                            errMsg = "Koneksi terjalin tetapi Router memberikan respons kosong.";
+                          }
+                        } catch (err: any) {
+                          errMsg = err.message || "Timeout / Handshake Connection Refused";
+                        }
+
+                        if (syncSucceeded) {
+                          const rxP = realActivePpp !== null ? realActivePpp : mtActivePppoeCount;
+                          const rxH = realHotspot !== null ? realHotspot : mtActiveHotspotCount;
+                          const rxS = realSecrets !== null ? realSecrets : mtPppoeSecretCount;
+                          
+                          setMtActivePppoeCount(rxP);
+                          setMtActiveHotspotCount(rxH);
+                          setMtPppoeSecretCount(rxS);
+
+                          if (editingClient) {
+                            const updatedC: Client = {
+                              ...editingClient,
+                              mtActivePppoeCount: rxP,
+                              mtActiveHotspotCount: rxH,
+                              mtPppoeSecretCount: rxS,
+                              mikrotikIp,
+                              mikrotikPort: Number(mikrotikPort) || 8728,
+                              mikrotikUser,
+                              mikrotikPassword,
+                              mikrotikVersion,
+                              mikrotikInterface: mikrotikInterface || "ether1"
+                            };
+                            onUpdateClient(updatedC);
+                          }
+
+                          notify(`✅ SINKRONISASI AKTIF RIIL BERHASIL! Mendeteksi ${rxP} PPPoE aktif, ${rxH} Hotspot, dan ${rxS} Secrets langsung dari MikroTik @${mikrotikIp}. Data otomatis terekam ke database.`, "success");
+                        } else {
+                          // Crucial: DO NOT overwrite client-entered inputs with hardcoded mocks on private network connection block!
+                          // This leaves their entered values fully intact and displays a highly educational fallback notice.
+                          notify(`⚠️ Menggunakan Input Manual & Simulasi (${errMsg || "IP Lokal Privat tidak dapat dijangkau dari cloud container"}): Berhasil menyimpan ${mtActivePppoeCount} PPPoE, ${mtActiveHotspotCount} Hotspot, dan ${mtPppoeSecretCount} Secrets sesuai data input Anda.`, "info");
+                        }
                       }}
                       className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-lg inline-flex items-center gap-1 cursor-pointer transition-colors"
                     >

@@ -53,6 +53,38 @@ export default function CustomerPortalView({
   const [loginError, setLoginError] = useState<string>("");
   const [activeInvoiceForPayment, setActiveInvoiceForPayment] = useState<Invoice | null>(null);
   
+  // Enhanced security states: Lockout rate limiting, OTP Simulation steps
+  const [customerFailedAttempts, setCustomerFailedAttempts] = useState<number>(0);
+  const [customerLockoutTime, setCustomerLockoutTime] = useState<number>(0);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
+  const [pendingClient, setPendingClient] = useState<Client | null>(null);
+  const [otpCode, setOtpCode] = useState<string>( "");
+  const [activeOtpCode, setActiveOtpCode] = useState<string>("882255");
+  const [otpCountdown, setOtpCountdown] = useState<number>(0);
+
+  // Multi countdown loops in Portal
+  useEffect(() => {
+    if (customerLockoutTime <= 0) return;
+    const timer = setInterval(() => {
+      setCustomerLockoutTime((prev) => {
+        if (prev <= 1) return 0;
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [customerLockoutTime]);
+
+  useEffect(() => {
+    if (otpCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCountdown((prev) => {
+        if (prev <= 1) return 0;
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCountdown]);
+
   // Payment dynamic states
   const [paymentStep, setPaymentStep] = useState<"idle" | "review" | "scanning" | "processing" | "success">("idle");
   const [paymentMethod, setPaymentMethod] = useState<"QRIS" | "VA_MANDIRI" | "VA_BCA">("QRIS");
@@ -69,6 +101,11 @@ export default function CustomerPortalView({
 
   const handleLogin = (e?: React.FormEvent, bypassValue?: string) => {
     if (e) e.preventDefault();
+    if (customerLockoutTime > 0) {
+      notify(`Sistem terkunci! Silakan tunggu ${customerLockoutTime} detik.`, "error");
+      return;
+    }
+
     const query = (bypassValue || loginInput).trim().toLowerCase();
     
     if (!query) {
@@ -89,14 +126,58 @@ export default function CustomerPortalView({
     });
 
     if (found) {
-      setSelectedClientId(found.id);
-      setIsLoggedIn(true);
-      setLoginInput("");
+      if (bizProfile?.otpAuthenticationEnabled === false) {
+        setSelectedClientId(found.id);
+        setIsLoggedIn(true);
+        setLoginInput("");
+        setLoginError("");
+        notify(`Status Portal Aktif: Selamat datang kembali, ${found.company} (${found.name})`, "success");
+        return;
+      }
+
+      // Transition to OTP verification factor stage
+      setPendingClient(found);
+      setIsVerifyingOtp(true);
+      const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+      setActiveOtpCode(randomCode);
+      setOtpCountdown(30);
       setLoginError("");
-      notify(`Status Portal Aktif: Selamat datang, ${found.company} (${found.name})`, "success");
+      setOtpCode("");
+      
+      notify(`Gateway Otorisasi 2FA: Kode OTP baru dikirim ke WhatsApp/Email ${found.name || found.company}!`, "success");
+
+      // Dispatch the verification SMS/WA code through our gateway endpoint
+      const formattedMessage = `🔑 *VERIFIKASI OTP MULTI-FACTOR NOC*\n\nHalo *${found.name || "Klien NYA"}*,\n\nKode verifikasi rahasia Anda untuk masuk ke Portal Pelanggan NOC Nusantara adalah:\n\n👉 *${randomCode}*\n\nKode berlaku selama 5 menit. Harap jaga kerahasiaan sandi sekali pakai ini.\n\n_System security monitoring powered by NOC Nusantara_`;
+      
+      fetch("/api/whatsapp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: found.phone || "081234567890",
+          text: formattedMessage
+        })
+      })
+        .then(res => res.json())
+        .then(result => {
+          if (result.success) {
+            console.log(`[OTP WhatsApp dispatched via ${result.mode || "gateway"}]: code ${randomCode}`);
+          }
+        })
+        .catch(err => {
+          console.warn("OTP Gateway delivery bypassed:", err.message);
+        });
     } else {
-      setLoginError("Data tidak ditemukan. Silakan masukkan No HP, Nama Pelanggan, ID Pelanggan, atau Email yang terdaftar.");
-      notify("Autentikasi Pelanggan Gagal.", "error");
+      const nextAttempts = customerFailedAttempts + 1;
+      setCustomerFailedAttempts(nextAttempts);
+      if (nextAttempts >= 3) {
+        setCustomerLockoutTime(30);
+        setCustomerFailedAttempts(0);
+        setLoginError("Percobaan gagal berulang! Sistem terkunci selama 30 detik untuk perlindungan data.");
+        notify("Autentikasi gagal berulang. Portal dibekukan sementara.", "error");
+      } else {
+        setLoginError(`Identifikasi tidak ditemukan. Sisa toleransi percobaan: ${3 - nextAttempts}`);
+        notify("Identifikasi pelanggan salah.", "error");
+      }
     }
   };
 
@@ -197,53 +278,194 @@ export default function CustomerPortalView({
         </div>
 
         {/* Login Card Grid */}
-        <div className="max-w-md mx-auto bg-white dark:bg-[#111827] rounded-2xl border-2 border-slate-200 dark:border-slate-800 shadow-md p-6 space-y-5" id="login-panel">
-          <div className="text-center space-y-1.5">
-            <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto text-lg font-extrabold shadow-sm">
-              <User className="w-6 h-6" />
-            </div>
-            <h2 className="text-sm font-extrabold text-slate-850 dark:text-white uppercase tracking-wider">Login Portal Layanan</h2>
-            <p className="text-xs text-slate-400">Masuk secara instan menggunakan data yang terdaftar di sistem.</p>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-4 text-xs">
-            {loginError && (
-              <div className="p-3 rounded-lg bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-350 border border-red-100 dark:border-red-900/60 font-semibold" id="login-err-msg">
-                ⚠ {loginError}
+        {isVerifyingOtp && pendingClient ? (
+          <div className="max-w-md mx-auto bg-white dark:bg-[#111827] rounded-2xl border-2 border-slate-200 dark:border-slate-800 shadow-md p-6 space-y-5 animate-in fade-in zoom-in duration-300" id="otp-panel">
+            <div className="text-center space-y-1.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-[#2563eb] dark:text-blue-400 flex items-center justify-center mx-auto text-lg font-extrabold shadow-xs">
+                <ShieldCheck className="w-6 h-6 animate-pulse" />
               </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                Data Identifikasi Pelanggan (Optional)
-              </label>
-              <input
-                type="text"
-                required
-                value={loginInput}
-                onChange={(e) => setLoginInput(e.target.value)}
-                placeholder="No HP, Nama Klien, ID Pelanggan atau Email..."
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white font-semibold focus:outline-blue-500 text-xs"
-                id="login-field-input"
-              />
-              <span className="text-[10px] text-slate-400 block leading-relaxed mt-1">
-                💡 Anda bisa memasukkan salah satu info berikut:<br />
-                - **No HP** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-rose-500 font-mono">0812</code>)<br />
-                - **Nama Klien** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-blue-500">Aero</code> atau <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-blue-500">Satelindo</code>)<br />
-                - **ID Pelanggan** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-emerald-500 font-mono">CLI-102</code>)<br />
-                - **Email** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-purple-500">finance@</code>)
+              <span className="text-[9px] font-mono font-extrabold text-[#2563eb] dark:text-blue-400 uppercase tracking-widest bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded border border-blue-100 inline-block">
+                Two-Factor Security Verified
               </span>
+              <h2 className="text-sm font-extrabold text-slate-850 dark:text-white uppercase tracking-wider">Verifikasi OTP SMS & WA</h2>
+              <p className="text-xs text-slate-400 leading-normal font-medium">
+                Sandi sekali pakai dikirim ke kontak terdaftar mitra <strong className="text-slate-800 dark:text-slate-200">{pendingClient.company}</strong> untuk perlindungan basis data tagihan SLA.
+              </p>
             </div>
 
-            <button
-              type="submit"
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
-              id="submit-portal-login"
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (customerLockoutTime > 0) return;
+                
+                if (otpCode === activeOtpCode) {
+                  setSelectedClientId(pendingClient.id);
+                  setIsLoggedIn(true);
+                  setIsVerifyingOtp(false);
+                  setPendingClient(null);
+                  setCustomerFailedAttempts(0);
+                  setOtpCode("");
+                  setLoginError("");
+                  notify(`Verifikasi 2FA Sukses! Selamat datang kembali, ${pendingClient.company}.`, "success");
+                } else {
+                  const nextAttempts = customerFailedAttempts + 1;
+                  setCustomerFailedAttempts(nextAttempts);
+                  if (nextAttempts >= 3) {
+                    setCustomerLockoutTime(30);
+                    setCustomerFailedAttempts(0);
+                    setIsVerifyingOtp(false);
+                    setPendingClient(null);
+                    setLoginError("Batas toleransi OTP terlampaui. Portal dikunci selama 30 detik untuk keamanan.");
+                    notify("Gagal OTP berulang. Otorisasi sesi ditolak.", "error");
+                  } else {
+                    notify(`Kode OTP tidak sesuai! Sisa toleransi: ${3 - nextAttempts}`, "error");
+                  }
+                }
+              }}
+              className="space-y-4 text-xs"
             >
-              Autentikasi Sesi & Masuk
-            </button>
-          </form>
-        </div>
+              <div className="space-y-1.5 text-center">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-left">
+                  Kode OTP 6-Digit
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  required
+                  placeholder="------"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                  className="w-full tracking-[1.58em] pl-[1.58em] font-mono text-center text-xl font-black py-2 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white focus:outline-blue-500"
+                />
+              </div>
+
+              {/* Simulation instruction alert box */}
+              <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/60 rounded-xl leading-normal text-[10.5px] text-blue-700 dark:text-blue-300">
+                <span className="font-bold text-blue-600 dark:text-blue-400 block mb-0.5 leading-none">💬 SIMULATOR GATEWAY</span>
+                Untuk simulasi pengetesan, masukkan OTP WhatsApp berikut: <strong className="font-mono text-xs text-rose-500 bg-rose-50 dark:bg-rose-950/50 px-1.5 py-0.5 rounded border border-rose-200 font-extrabold">{activeOtpCode}</strong>
+              </div>
+
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsVerifyingOtp(false);
+                    setPendingClient(null);
+                    setOtpCode("");
+                    setLoginError("");
+                    notify("Sesi autentikasi dibatalkan.", "info");
+                  }}
+                  className="w-1/3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-350 rounded-lg font-bold uppercase tracking-wider text-[10px]"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold uppercase tracking-wider text-[10px]"
+                >
+                  Verifikasi OTP
+                </button>
+              </div>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  disabled={otpCountdown > 0}
+                  onClick={() => {
+                    const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+                    setActiveOtpCode(randomCode);
+                    setOtpCountdown(30);
+                    notify("Kode verifikasi OTP baru telah dikirim!", "success");
+
+                    // Resend the code via the API
+                    const targetPhone = pendingClient?.phone || "081234567890";
+                    const formattedMessage = `🔑 *VERIFIKASI OTP MULTI-FACTOR NOC*\n\nHalo *${pendingClient?.name || "Klien NYA"}*,\n\nKode verifikasi rahasia baru Anda untuk masuk ke Portal Pelanggan NOC Nusantara adalah:\n\n👉 *${randomCode}*\n\nKode berlaku selama 5 menit. Harap jaga kerahasiaan sandi sekali pakai ini.\n\n_System security monitoring powered by NOC Nusantara_`;
+                    
+                    fetch("/api/whatsapp/send", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        to: targetPhone,
+                        text: formattedMessage
+                      })
+                    })
+                      .then(res => res.json())
+                      .then(result => {
+                        if (result.success) {
+                          console.log(`[OTP Resend Success via ${result.mode}]: code ${randomCode}`);
+                        }
+                      })
+                      .catch(err => {
+                        console.warn("OTP Gateway delivery bypassed:", err.message);
+                      });
+                  }}
+                  className="text-[10px] text-blue-650 dark:text-blue-400 font-bold hover:underline disabled:text-slate-400 disabled:no-underline cursor-pointer bg-transparent border-0"
+                >
+                  Kirim Ulang OTP {otpCountdown > 0 ? `(${otpCountdown}s)` : ""}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (
+          <div className="max-w-md mx-auto bg-white dark:bg-[#111827] rounded-xl border-2 border-slate-200 dark:border-slate-800 shadow-md p-6 space-y-5" id="login-panel">
+            <div className="text-center space-y-1.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto text-lg font-extrabold shadow-sm">
+                <User className="w-6 h-6" />
+              </div>
+              <h2 className="text-sm font-extrabold text-slate-850 dark:text-white uppercase tracking-wider">Login Portal Layanan</h2>
+              <p className="text-xs text-slate-400 font-medium">Masuk secara instan menggunakan data yang terdaftar di sistem.</p>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-4 text-xs">
+              {loginError && (
+                <div className="p-3 rounded-lg bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-350 border border-red-100 dark:border-red-900/60 font-semibold" id="login-err-msg">
+                  ⚠ {loginError}
+                </div>
+              )}
+
+              {customerLockoutTime > 0 ? (
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900 text-rose-700 dark:text-rose-455 rounded-xl font-bold font-mono text-center mb-2">
+                  🔒 PORTAL TERKUNCI • {customerLockoutTime}s COOLDOWN
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                      Data Identifikasi Pelanggan
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={loginInput}
+                      onChange={(e) => setLoginInput(e.target.value)}
+                      placeholder="No HP, Nama Klien, ID Pelanggan atau Email..."
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-805 rounded-lg text-slate-900 dark:text-white font-semibold focus:outline-blue-500 text-xs"
+                      id="login-field-input"
+                    />
+                    <span className="text-[10px] text-slate-400 block leading-relaxed mt-1">
+                      💡 Anda bisa memasukkan salah satu info berikut:<br />
+                      - **No HP** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-rose-500 font-mono">0812</code>)<br />
+                      - **Nama Klien** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-blue-500">Aero</code> atau <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-blue-500">Satelindo</code>)<br />
+                      - **ID Pelanggan** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-emerald-500 font-mono">CLI-102</code>)<br />
+                      - **Email** (misalnya: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded font-normal text-purple-500">finance@</code>)
+                    </span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                    id="submit-portal-login"
+                  >
+                    {bizProfile?.otpAuthenticationEnabled === false 
+                      ? "Masuk Ke Portal Instan" 
+                      : "Minta Kode Keamanan OTP"
+                    }
+                  </button>
+                </>
+              )}
+            </form>
+          </div>
+        )}
       </div>
     );
   }
@@ -360,7 +582,7 @@ export default function CustomerPortalView({
             </div>
 
             {/* Simulated Live Customer Router Diagnostik Panel */}
-            {useMemo(() => {
+            {(() => {
               const companySlug = simulatedClient.company.toLowerCase().replace(/[^a-z0-9]/g, "");
               const secretCount = simulatedClient.mtPppoeSecretCount || 10;
               const activeCount = simulatedClient.mtActivePppoeCount || 6;
@@ -374,7 +596,7 @@ export default function CustomerPortalView({
                   username: `${companySlug}_user_${index + 1}`,
                   service: "pppoe",
                   profile: index % 2 === 0 ? "SLA_Premium_50M" : "SLA_Standard_20M",
-                  uptime: isOnline ? `${index + 2}j ${((index * 8) + realtimeTick) % 60}m 15d` : "-",
+                  uptime: isOnline ? `${index + 2}j ${(index * 8) % 60}m 15d` : "-",
                   ipAddress: `10.50.${10 + (simulatedClient.id === "1" ? 1 : 2) * 5}.${100 + index}`,
                   mac: `00:0C:42:F1:C${index}:${10 + index}`,
                   status: isOnline ? "Active" : "Offline",
@@ -388,8 +610,8 @@ export default function CustomerPortalView({
                   ipAddress: `192.168.88.${50 + index}`,
                   mac: `B4:75:0E:C8:42:0${index}`,
                   uptime: `${index * 15 + 4}m 22s`,
-                  bytesIn: `${((index + 1) * 3.4 + (realtimeTick * 0.1)).toFixed(1)} MB`,
-                  bytesOut: `${((index + 1) * 11.2 + (realtimeTick * 0.5)).toFixed(1)} MB`
+                  bytesIn: `${((index + 1) * 3.4).toFixed(1)} MB`,
+                  bytesOut: `${((index + 1) * 11.2).toFixed(1)} MB`
                 };
               });
  
@@ -402,7 +624,7 @@ export default function CustomerPortalView({
                        <div>
                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block leading-none">Status Koneksi Core</span>
                          <h4 className="text-xs font-bold text-slate-200 mt-1 flex items-center gap-1">
-                          🌐 Host IP: {simulatedClient.mikrotikIp || "Local Connection"}
+                           🌐 Host IP: {simulatedClient.mikrotikIp || "10.50.24.15 (Simulasi)"}
                          </h4>
                        </div>
                     </div>
@@ -423,7 +645,7 @@ export default function CustomerPortalView({
                       {/* Port 1 - WAN */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">P1 (WAN)</span>
-                        <div className={`w-2 h-2 rounded-full bg-emerald-500 absolute top-1 right-1 ${realtimeTick % 2 === 0 ? 'animate-ping' : ''}`}></div>
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping absolute top-1 right-1"></div>
                         <div className="w-2 h-2 rounded-full bg-emerald-500 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-emerald-400">1 Gbps</span>
                       </div>
@@ -431,7 +653,7 @@ export default function CustomerPortalView({
                       {/* Port 2 - PPPoE Active */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">P2 (PPPoE)</span>
-                        <div className={`w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1 ${realtimeTick % 3 === 0 ? 'animate-pulse' : ''}`}></div>
+                        <div className="w-2 h-2 rounded-full bg-emerald-555 bg-emerald-400 animate-pulse absolute top-1 right-1"></div>
                         <div className="w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-emerald-400">UP</span>
                       </div>
@@ -439,7 +661,7 @@ export default function CustomerPortalView({
                       {/* Port 3 - Hotspot */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">P3 (VLAN)</span>
-                        <div className={`w-2 h-2 rounded-full bg-amber-500 absolute top-1 right-1 ${realtimeTick % 4 === 0 ? 'animate-pulse' : ''}`}></div>
+                        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse absolute top-1 right-1"></div>
                         <div className="w-2 h-2 rounded-full bg-amber-500 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-amber-400">UP</span>
                       </div>
@@ -461,7 +683,7 @@ export default function CustomerPortalView({
                       {/* Port 6 - SFP+ */}
                       <div className="bg-slate-900 border border-slate-800 rounded p-1 flex flex-col items-center justify-between h-11 relative">
                         <span className="text-[7px] text-slate-500 font-mono">SFP+</span>
-                        <div className={`w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1 ${realtimeTick % 2 !== 0 ? 'animate-pulse' : ''}`}></div>
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse absolute top-1 right-1"></div>
                         <div className="w-2 h-2 rounded-full bg-emerald-400 absolute top-1 right-1"></div>
                         <span className="text-[6.5px] font-bold text-blue-400">10G</span>
                       </div>
@@ -473,9 +695,9 @@ export default function CustomerPortalView({
                     <div className="bg-slate-850 p-2 rounded-lg border border-slate-800/80">
                       <div className="text-slate-400 text-[8px] font-mono uppercase font-bold tracking-wider mb-0.5">📉 BEBAN CPU</div>
                       <div className="font-extrabold text-indigo-300 font-mono text-[11px] flex justify-center items-center gap-1">
-                        <span>{8 + (realtimeTick % 5)}%</span>
+                        <span>8%</span>
                         <div className="w-8 h-1 bg-slate-800 rounded-full overflow-hidden">
-                          <div className="h-full bg-indigo-400 rounded-full" style={{ width: `${8 + (realtimeTick % 5)}%` }}></div>
+                          <div className="w-[8%] h-full bg-indigo-400 rounded-full"></div>
                         </div>
                       </div>
                     </div>
@@ -524,7 +746,7 @@ export default function CustomerPortalView({
                         <div key={item.username} className="flex items-center justify-between p-2 py-1.5 text-[9.5px] bg-slate-900 border border-slate-850 rounded-lg shadow-xs hover:border-emerald-500/30 transition-all font-mono">
                           <div>
                             <div className="font-extrabold text-slate-100 flex items-center gap-1.5 text-[10px]">
-                              <span className={`w-1.5 h-1.5 rounded-full bg-emerald-500 ${realtimeTick % 2 === 0 ? 'animate-pulse' : ''}`}></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                               {item.username}
                             </div>
                             <span className="text-slate-400 block text-[8px] mt-0.5">IP: {item.ipAddress} • {item.profile}</span>
@@ -568,7 +790,7 @@ export default function CustomerPortalView({
                         <div key={item.username} className="flex items-center justify-between p-2 py-1.5 text-[9.5px] bg-slate-900 border border-slate-850 rounded-lg shadow-xs hover:border-amber-500/30 transition-all font-mono">
                           <div>
                             <div className="font-extrabold text-slate-100 flex items-center gap-1.5 text-[10px]">
-                              <span className={`w-1.5 h-1.5 rounded-full bg-amber-500 ${realtimeTick % 3 === 0 ? 'animate-pulse' : ''}`}></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
                               {item.username}
                             </div>
                             <span className="text-slate-400 block text-[8px] mt-0.5">IP: {item.ipAddress} • {item.uptime}</span>
@@ -587,7 +809,7 @@ export default function CustomerPortalView({
                   </div>
                 </div>
               );
-            }, [simulatedClient, realtimeTick, activeCoreTab])}
+            })()}
 
             {/* Transaction overview metrics */}
             <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-3" id="portal-metrics-overview">

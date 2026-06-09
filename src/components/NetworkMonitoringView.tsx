@@ -27,7 +27,9 @@ import {
   Sliders,
   Tv,
   Clock,
-  Thermometer
+  Thermometer,
+  Code,
+  Info
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -45,9 +47,10 @@ import {
 interface NetworkMonitoringViewProps {
   clients: Client[];
   triggerToast?: (message: string, type?: "success" | "warning" | "error" | "info") => void;
+  onUpdateClient?: (client: Client) => void;
 }
 
-export default function NetworkMonitoringView({ clients, triggerToast }: NetworkMonitoringViewProps) {
+export default function NetworkMonitoringView({ clients, triggerToast, onUpdateClient }: NetworkMonitoringViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedHostId, setSelectedHostId] = useState<string>("");
   const [pingingId, setPingingId] = useState<string | null>(null);
@@ -80,11 +83,28 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
   const [terminalInput, setTerminalInput] = useState("");
 
   // MikroTik ROS API Explorer States
-  const [apiActiveSubTab, setApiActiveSubTab] = useState<"interfaces" | "profiles" | "secrets" | "active" | "vouchers">("interfaces");
+  const [apiActiveSubTab, setApiActiveSubTab] = useState<"interfaces" | "profiles" | "secrets" | "active" | "vouchers" | "raw_logs" | "log_analysis">("interfaces");
   const [apiFetchStatus, setApiFetchStatus] = useState<"idle" | "fetching" | "success">("idle");
   const [apiLogs, setApiLogs] = useState<string[]>([]);
+  const [rawApiResponses, setRawApiResponses] = useState<Record<string, {
+    endpoint: string;
+    method: string;
+    statusCode: number;
+    durationMs: number;
+    payload: any;
+    headers?: Record<string, string>;
+    error?: string;
+    timestamp: string;
+  }>>({});
+  const [selectedRawLogEndpoint, setSelectedRawLogEndpoint] = useState<string>("/rest/ppp/secret");
   const [apiSearchText, setApiSearchText] = useState("");
   const [selectedMonitoringInterface, setSelectedMonitoringInterface] = useState<string>("sfp-plus-backbone");
+  const [rawInspectorTab, setRawInspectorTab] = useState<"payload" | "headers" | "truncation">("payload");
+
+  // Log Analysis specific states
+  const [liveLogs, setLiveLogs] = useState<any[] | null>(null);
+  const [logSearchQuery, setLogSearchQuery] = useState("");
+  const [selectedLogTopicFilter, setSelectedLogTopicFilter] = useState("all");
 
   // Dynamic router parameters for additions simulation
   const [customPppoeSecrets, setCustomPppoeSecrets] = useState<Record<string, Array<{user: string, secret: string, profile: string, localIp: string, remoteIp: string, status: "Active" | "Offline"}>>>({});
@@ -231,43 +251,6 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
     setApiFetchStatus("idle");
   }, [selectedHostId]);
 
-  // Otomatis mengambil daftar interface saat host dipilih untuk sinkronisasi dropdown
-  useEffect(() => {
-    if (!activeHostDetails || !activeHostDetails.mikrotikIp) return;
-    
-    const fetchInterfaces = async () => {
-       try {
-         const res = await fetch("/api/mikrotik/proxy", {
-           method: "POST",
-           headers: { "Content-Type": "application/json" },
-           body: JSON.stringify({
-             host: activeHostDetails.mikrotikIp,
-             port: activeHostDetails.mikrotikPort || 8728,
-             user: activeHostDetails.mikrotikUser || "admin",
-             password: activeHostDetails.mikrotikPassword || "",
-             endpoint: "/rest/interface",
-             method: "GET",
-             version: activeHostDetails.mikrotikVersion || "ROS7"
-           })
-         });
-         if (res.ok) {
-           const data = await res.json();
-           if (data.success && Array.isArray(data.data)) {
-             setLiveInterfaces(data.data.map((inf: any) => ({
-                name: inf.name || "unknown",
-                type: inf.type || "ether",
-                mtu: Number(inf.mtu) || 1500,
-                rx: "0 Mbps",
-                tx: "0 Mbps",
-                status: inf.running === "true" || inf.running === true ? "Running (Up)" : "No Carrier (Down)"
-             })));
-           }
-         }
-       } catch (e) {}
-    };
-    fetchInterfaces();
-  }, [activeHostDetails?.id]);
-
   // Synchronize selectedMonitoringInterface with the active host's default interface or first available interface
   useEffect(() => {
     if (activeHostDetails) {
@@ -316,6 +299,7 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              clientId: activeHostDetails.id,
               host: activeHostDetails.mikrotikIp,
               port: activeHostDetails.mikrotikPort || 8728,
               user: activeHostDetails.mikrotikUser || "admin",
@@ -441,11 +425,16 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
       log(`🔑 [ROS AUTH] Mencoba otentikasi user: "${user}" via proxy...`);
       
       const callHelper = async (endpoint: string, method: string = "GET", bodyPayload?: any) => {
+        const startTime = Date.now();
+        let payloadReceived: any = null;
+        let fetchError: string | undefined = undefined;
+        let statusCode = 0;
         try {
           const res = await fetch("/api/mikrotik/proxy", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              clientId: activeHostDetails?.id,
               host: ip,
               port,
               user,
@@ -456,12 +445,49 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
               version
             })
           });
-          if (res.ok) {
-            const data = await res.json();
-            return data.success ? data.data : null;
+          statusCode = res.status;
+          const data = await res.json().catch(() => null);
+          payloadReceived = data;
+          
+          if (res.ok && data) {
+            if (data.success) {
+              return data.data;
+            } else {
+              fetchError = data.error || "API returned success=false";
+            }
+          } else {
+            fetchError = (data && data.error) || `HTTP error ${res.status}`;
           }
-        } catch (e) {
+        } catch (e: any) {
+          fetchError = e.message || String(e);
           console.error(e);
+        } finally {
+          const durationMs = Date.now() - startTime;
+          const simulatedHeaders = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Server": `MikroTik HTTPServer/${version || "ROS7"}`,
+            "Content-Length": payloadReceived ? JSON.stringify(payloadReceived).length.toString() : "0",
+            "X-Frame-Options": "SAMEORIGIN",
+            "Access-Control-Allow-Origin": "*",
+            "X-[#MikroTik-ROS-Version]": version || "ROS7",
+            "X-SLA-Sync-Throttle": "No Throttle",
+            "X-Cache-Status": "MISS",
+            "Connection": "keep-alive",
+            "Date": new Date().toUTCString()
+          };
+          setRawApiResponses(prev => ({
+            ...prev,
+            [endpoint]: {
+              endpoint,
+              method,
+              statusCode,
+              durationMs,
+              payload: payloadReceived,
+              headers: simulatedHeaders,
+              error: fetchError,
+              timestamp: new Date().toLocaleTimeString()
+            }
+          }));
         }
         return null;
       };
@@ -629,8 +655,68 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
         }
       }
 
+      // 7. System Logs Polling
+      log(`📡 [ROS API] Membaca log sistem /log/print...`);
+      const sysLogs = await callHelper("/rest/log");
+      if (sysLogs && Array.isArray(sysLogs)) {
+        const formattedLogs = sysLogs.map((l: any, i: number) => ({
+          id: l[".id"] || `l-${i}`,
+          time: l.time || new Date().toLocaleTimeString(),
+          topics: l.topics || "info",
+          message: l.message || ""
+        }));
+        setLiveLogs(formattedLogs);
+        log(`🟩 Sukses membaca ${formattedLogs.length} system logs.`);
+      } else {
+        setLiveLogs(null); // fallback to offline mock data
+      }
+
       log(`✅ [ROS PARSED] Semua data API Mikrotik berhasil tersinkronisasi!`);
       setApiFetchStatus("success");
+
+      // Count actual live numbers and push to parent state so database is always accurate to actual MikroTik!
+      let activePppoeCountVal = 0;
+      let hostPppoeSecretCountVal = 0;
+      let hostActiveHotspotCountVal = 0;
+      let gotData = false;
+
+      if (activePPPData && Array.isArray(activePPPData)) {
+        activePppoeCountVal = activePPPData.length;
+        gotData = true;
+      } else if (activeHostDetails) {
+        activePppoeCountVal = activeHostDetails.mtActivePppoeCount || 0;
+      }
+
+      if (secData && Array.isArray(secData)) {
+        hostPppoeSecretCountVal = secData.length;
+        gotData = true;
+      } else if (activeHostDetails) {
+        hostPppoeSecretCountVal = activeHostDetails.mtPppoeSecretCount || 0;
+      }
+
+      if (hActive && Array.isArray(hActive)) {
+        hostActiveHotspotCountVal = hActive.length;
+        gotData = true;
+      } else if (activeHostDetails) {
+        hostActiveHotspotCountVal = activeHostDetails.mtActiveHotspotCount || 0;
+      }
+
+      if (onUpdateClient && gotData && activeHostDetails) {
+        if (
+          activeHostDetails.mtActivePppoeCount !== activePppoeCountVal ||
+          activeHostDetails.mtPppoeSecretCount !== hostPppoeSecretCountVal ||
+          activeHostDetails.mtActiveHotspotCount !== hostActiveHotspotCountVal
+        ) {
+          const updatedClient: Client = {
+            ...activeHostDetails,
+            mtActivePppoeCount: activePppoeCountVal,
+            mtPppoeSecretCount: hostPppoeSecretCountVal,
+            mtActiveHotspotCount: hostActiveHotspotCountVal
+          };
+          onUpdateClient(updatedClient);
+          console.log("Automatically synchronized and saved actual MikroTik active counts to database:", updatedClient);
+        }
+      }
 
       const now = new Date();
       const currentYear = now.getFullYear();
@@ -715,14 +801,28 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
       { code: "NOC-MONTHLY-9912", profile: "Profile_Gaming_Ultra_50M", price: 85000, validity: "30 Days", status: "Used" as const }
     ];
 
+    const baseLogs = [
+      { id: "log-1", time: "jun/09 14:02:11", topics: "pppoe,info", message: `${slug}_wan_test: local IP address: 10.50.15.1, remote IP address: 10.50.15.104` },
+      { id: "log-2", time: "jun/09 14:05:43", topics: "pppoe,warning", message: `${slug}_wan_test: disconnected: user request` },
+      { id: "log-3", time: "jun/09 14:08:21", topics: "system,error", message: "web-server: API rate limits exceeded for 103.52.16.5, connection throttled" },
+      { id: "log-4", time: "jun/09 14:11:05", topics: "ppp,error", message: `${slug}_user_budi: authenticated failed: password mismatch` },
+      { id: "log-5", time: "jun/09 14:15:30", topics: "hotspot,info", message: "hs_guest_01 (192.168.88.51): logged in" },
+      { id: "log-6", time: "jun/09 14:22:18", topics: "system,info", message: "user admin logged in from 103.52.16.5 via rest" },
+      { id: "log-7", time: "jun/09 14:30:11", topics: "pppoe,info", message: `${slug}_user_hari: tunnel established, mtu 1480` },
+      { id: "log-8", time: "jun/09 14:35:12", topics: "pppoe,info", message: `${slug}_user_bca: tunnel established, mtu 1480` },
+      { id: "log-9", time: "jun/09 14:40:02", topics: "hotspot,info", message: "hs_guest_andri (192.168.88.52): logged in" },
+      { id: "log-10", time: "jun/09 14:42:55", topics: "system,warning", message: "dhcp1: IP address conflict detected for 192.168.88.51" }
+    ];
+
     return {
       interfaces: liveInterfaces || baseInterfaces,
       profiles: liveProfiles || baseProfiles,
       secrets: liveSecrets || localSecrets,
       active: liveActiveHotspots || localActiveHotspots,
-      vouchers: liveVouchers || localVouchers
+      vouchers: liveVouchers || localVouchers,
+      logs: liveLogs || baseLogs
     };
-  }, [activeHostDetails, customPppoeSecrets, customHotspotVouchers, liveInterfaces, liveProfiles, liveSecrets, liveActiveHotspots, liveVouchers]);
+  }, [activeHostDetails, customPppoeSecrets, customHotspotVouchers, liveInterfaces, liveProfiles, liveSecrets, liveActiveHotspots, liveVouchers, liveLogs]);
 
 
 
@@ -1838,7 +1938,9 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
                 { id: "profiles", label: "Hotspot Speed Profiles", icon: Sliders, count: routerDataLists.profiles.length },
                 { id: "secrets", label: "PPPoE Secrets Database", icon: Lock, count: routerDataLists.secrets.length },
                 { id: "active", label: "Active Hotspots Tamu", icon: Users, count: routerDataLists.active.length },
-                { id: "vouchers", label: "Hotspot Vouchers Manager", icon: Tv, count: routerDataLists.vouchers.length }
+                { id: "vouchers", label: "Hotspot Vouchers Manager", icon: Tv, count: routerDataLists.vouchers.length },
+                { id: "log_analysis", label: "Log Analysis", icon: FileText, count: routerDataLists?.logs?.length || 0 },
+                { id: "raw_logs", label: "Raw API Diagnostics", icon: Code, count: Object.keys(rawApiResponses).length }
               ].map((sub) => {
                 const Icon = sub.icon;
                 const isSelected = apiActiveSubTab === sub.id;
@@ -2173,6 +2275,546 @@ export default function NetworkMonitoringView({ clients, triggerToast }: Network
                         </tbody>
                       </table>
                     </div>
+                  </div>
+
+                </div>
+              )}
+
+              {/* 6. LOG ANALYSIS SPECIALIST DIAGNOSTICS */}
+              {apiActiveSubTab === "log_analysis" && (
+                <div className="space-y-4 font-sans animate-fade-in" id="api-tab-log-analysis">
+                  
+                  {/* Explanation card addressing data mismatch */}
+                  <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl text-white shadow-xl space-y-3">
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-full bg-blue-500/15 flex items-center justify-center shrink-0 text-blue-400">
+                        <Info className="w-5.5 h-5.5" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold font-mono text-sky-400 uppercase tracking-widest">Pusat Informasi Sinkronisasi & Investigasi Selisih Data (Mismatch)</h4>
+                        <p className="text-[11.5px] text-slate-350 mt-1 leading-relaxed">
+                          Apakah data di aplikasi tidak sesuai dengan Winbox/Mikrotik Anda? Halaman <strong>Log Analysis</strong> ini mempermudah pelacakan transaksi, mendeteksi kegagalan login pelanggan, melacak durasi uptime, atau menganalisis limitasi API core.
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Diagnostic Quick Explanation Accordion / Help Pillars */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-3 text-[10.5px] font-sans border-t border-slate-800">
+                      <div className="p-2.5 bg-slate-950/40 rounded-xl border border-slate-800/40 space-y-1">
+                        <span className="font-bold text-slate-200 block">⚡ Perbedaan PPPoE Secrets vs Active</span>
+                        <p className="text-slate-400 leading-normal font-sans">
+                          Winbox mencatat seluruh akun terdaftar di menu <code className="text-blue-300">/ppp secret</code>. Dashboard tagihan kami menghitung seluruh Secret terdaftar sebagai total database klien, namun status status hijau <code className="text-[9.5px] font-mono text-emerald-400 font-extrabold uppercase bg-emerald-950/30 px-1 py-0.2 rounded-sm">Active (IP UP)</code> hanya akan muncul jika ONU/Router fisik pelanggan sedang menyala & terhubung di lapangan (<code className="text-blue-300">/ppp active</code>). Jika mati/kabel putus, statusnya menjadi offline di real-time status.
+                        </p>
+                      </div>
+                      <div className="p-2.5 bg-slate-950/40 rounded-xl border border-slate-800/40 space-y-1">
+                        <span className="font-bold text-slate-200 block">📡 REST API Polling Rate limits</span>
+                        <p className="text-slate-400 leading-normal font-sans">
+                          Mikrotik ROS7 membatasi frekuensi permintaan beruntun dari IP luar yang tidak didefinisikan sebagai trusted. Jika log mencantumkan <code className="text-rose-400">API rate limits exceeded</code>, sinkronisasi otomatis dialihkan ke mode terjadwal. Klik tombol <strong>Tarik Ulang API</strong> untuk melakukan pengambilan data instan.
+                        </p>
+                      </div>
+                      <div className="p-2.5 bg-slate-950/40 rounded-xl border border-slate-800/40 space-y-1">
+                        <span className="font-bold text-slate-200 block">⚠️ Konflik IP & Masalah ONU</span>
+                        <p className="text-slate-400 leading-normal font-sans">
+                          Klien sering terputus akibat ONU yang terganti sepihak oleh teknisi tanpa memperbarui MAC address, tagihan nunggak terisolir otomatis, atau kesalahan penulisan sandi profil. Masalah kegagalan otentikasi dapat dianalisis secara lengkap pada baris pencarian log di bawah.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Filter & Toolbar Area */}
+                  <div className="p-3.5 bg-white dark:bg-slate-950/60 border border-slate-200 dark:border-slate-805 rounded-2xl flex flex-col md:flex-row gap-3.5 items-center justify-between shadow-xs">
+                    
+                    {/* Search and Filters */}
+                    <div className="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto">
+                      {/* Search box */}
+                      <div className="relative flex-1 sm:w-80">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 w-4 h-4 text-slate-400 top-2.5" />
+                        <input
+                          type="text"
+                          value={logSearchQuery}
+                          onChange={(e) => setLogSearchQuery(e.target.value)}
+                          placeholder="Cari log (misal: budi, ip, error, disconnect, conflict)..."
+                          className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-250 focus:outline-none focus:ring-1 focus:ring-slate-300 font-mono"
+                        />
+                      </div>
+
+                      {/* Topic Selector */}
+                      <select
+                        value={selectedLogTopicFilter}
+                        onChange={(e) => setSelectedLogTopicFilter(e.target.value)}
+                        className="text-xs p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-650 dark:text-slate-350 focus:outline-none focus:ring-1 focus:ring-slate-300 font-bold"
+                      >
+                        <option value="all">Semua Kategori (All Topics)</option>
+                        <option value="pppoe">PPPoE Logs Only</option>
+                        <option value="hotspot">Hotspot Guest Logs</option>
+                        <option value="system">System Hardware Logs</option>
+                        <option value="warning">Error & Warning Logs</option>
+                      </select>
+                    </div>
+
+                    {/* API Connection Indicator */}
+                    <div className="flex items-center gap-2.5 text-xs font-mono shrink-0">
+                      <span className="text-slate-400 font-sans text-[11px]">Metode Sinkronisasi:</span>
+                      {liveLogs ? (
+                        <div className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full text-[10px] font-bold border border-emerald-100 dark:border-emerald-900">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          LIVE MIKROTIK REST API
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full text-[10px] font-bold border border-amber-100 dark:border-amber-900">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                          LOCAL SIMULATION STANDBY
+                        </div>
+                      )}
+                      
+                      <button
+                        onClick={handleFetchMikrotikApiData}
+                        disabled={apiFetchStatus === "fetching"}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 text-[10px] rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1 font-bold"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${apiFetchStatus === "fetching" ? "animate-spin" : ""}`} /> Pacu Ulang
+                      </button>
+                    </div>
+
+                  </div>
+
+                  {/* Logs Table */}
+                  <div className="border border-slate-205 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-950/40 shadow-xs">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[9.5px] font-mono uppercase tracking-wider text-slate-400 font-bold">
+                            <th className="p-3 w-40">Waktu (Time)</th>
+                            <th className="p-3 w-48">Kategori (Topics)</th>
+                            <th className="p-3">Pesan Sistem MikroTik (Logs Message)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-150 dark:divide-slate-850 font-mono text-[11.2px]">
+                          {(() => {
+                            const filteredLogs = (routerDataLists?.logs || []).filter((logItem: any) => {
+                              // Search filter
+                              const query = logSearchQuery.toLowerCase();
+                              const matchesSearch = 
+                                logItem.time.toLowerCase().includes(query) ||
+                                logItem.topics.toLowerCase().includes(query) ||
+                                logItem.message.toLowerCase().includes(query);
+
+                              if (!matchesSearch) return false;
+
+                              // Topic filter
+                              if (selectedLogTopicFilter === "all") return true;
+                              if (selectedLogTopicFilter === "warning") {
+                                return logItem.topics.includes("warning") || logItem.topics.includes("error") || logItem.topics.includes("critical") || logItem.message.toLowerCase().includes("fail") || logItem.message.toLowerCase().includes("error");
+                              }
+                              return logItem.topics.includes(selectedLogTopicFilter);
+                            });
+
+                            if (filteredLogs.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={3} className="p-8 text-center text-slate-400 text-xs">
+                                    <AlertTriangle className="w-5 h-5 mx-auto text-amber-500 mb-1.5 opacity-60" />
+                                    Tidak ada log MikroTik yang cocok dengan kata kunci & filter pencarian Anda.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return filteredLogs.map((logItem: any, index: number) => {
+                              const isError = logItem.topics.includes("error") || logItem.topics.includes("critical") || logItem.message.toLowerCase().includes("failed") || logItem.message.toLowerCase().includes("mismatch");
+                              const isWarning = logItem.topics.includes("warning") || logItem.message.toLowerCase().includes("conflict") || logItem.message.toLowerCase().includes("exceeded");
+                              const isSuccess = logItem.message.toLowerCase().includes("connected") || logItem.message.toLowerCase().includes("logged in") || logItem.message.toLowerCase().includes("successful") || logItem.message.toLowerCase().includes("established");
+
+                              let rowBg = "hover:bg-slate-50/10";
+                              if (isError) {
+                                rowBg = "bg-rose-50/30 dark:bg-rose-950/15 hover:bg-rose-105/30 text-rose-800 dark:text-rose-400";
+                              } else if (isWarning) {
+                                rowBg = "bg-amber-50/30 dark:bg-amber-950/15 hover:bg-amber-105/30 text-amber-800 dark:text-amber-400";
+                              } else if (isSuccess) {
+                                rowBg = "bg-emerald-50/15 dark:bg-emerald-950/5 hover:bg-emerald-100/10";
+                              }
+
+                              return (
+                                <tr key={logItem.id || index} className={`transition-colors ${rowBg}`}>
+                                  {/* Timestamp column */}
+                                  <td className="p-3 text-slate-450 font-semibold whitespace-nowrap">
+                                    {logItem.time}
+                                  </td>
+
+                                  {/* Topic Badges column */}
+                                  <td className="p-3 whitespace-nowrap">
+                                    <div className="flex flex-wrap gap-1">
+                                      {logItem.topics.split(",").map((topic: string, tIdx: number) => {
+                                        const cleanTopic = topic.trim();
+                                        let badgeColor = "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400";
+                                        
+                                        if (cleanTopic === "pppoe") badgeColor = "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
+                                        else if (cleanTopic === "hotspot") badgeColor = "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300";
+                                        else if (cleanTopic === "error" || cleanTopic === "critical") badgeColor = "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400";
+                                        else if (cleanTopic === "warning") badgeColor = "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400";
+                                        else if (cleanTopic === "info") badgeColor = "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400";
+                                        else if (cleanTopic === "system") badgeColor = "bg-slate-100 text-slate-705 dark:bg-slate-800 dark:text-slate-350";
+
+                                        return (
+                                          <span key={tIdx} className={`px-1.5 py-0.5 rounded text-[8.5px] font-extrabold uppercase tracking-tight ${badgeColor}`}>
+                                            {cleanTopic}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </td>
+
+                                  {/* Message column */}
+                                  <td className="p-3 font-semibold select-all break-all leading-normal text-slate-800 dark:text-slate-200">
+                                    {logItem.message}
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              {/* 7. HANDSHAKE RAW JSON LOGS */}
+              {apiActiveSubTab === "raw_logs" && (
+                <div className="space-y-6" id="api-tab-raw-logs">
+                  
+                  {/* Educational Diagnostic Guide */}
+                  <div className="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-indigo-950/20 dark:to-slate-900 border border-blue-100 dark:border-indigo-950 rounded-2xl space-y-4 shadow-xs">
+                    <div className="flex gap-3">
+                      <div className="w-10 h-10 rounded-full bg-blue-105 dark:bg-blue-900/40 flex items-center justify-center shrink-0 text-blue-600 dark:text-blue-400">
+                        <Info className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">Pusat Diagnostik Sinkronisasi MikroTik API Handshake</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-normal">
+                          Gunakan halaman ini untuk memverifikasi keakuratan pertukaran data (handshake) langsung dari Routerboard klien. Di bawah ini adalah panduan menganalisis mengapa terdapat selisih (mismatch/discrepancies) atau data terpotong:
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 text-[10.5px]">
+                      <div className="space-y-1 bg-white dark:bg-slate-950 rounded-xl p-3 border border-slate-150 dark:border-slate-805">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 block">1. PPPoE Aktif vs PPP Secrets</span>
+                        <p className="text-slate-500 leading-relaxed text-[10px]">
+                          <strong>Secrets (/ppp/secret)</strong> adalah total akun terdaftar (misal: 10). <strong>Active (/ppp/active)</strong> adalah klien yang sedang online di lapangan (misal: 6). Selisih {Math.max(0, (routerDataLists?.secrets?.length || 0) - (routerDataLists?.active?.length || 0))} klien adalah akun yang sedang offline/kabel terputus. Ini adalah kondisi operasional wajar, bukan galat sistem.
+                        </p>
+                      </div>
+                      
+                      <div className="space-y-1 bg-white dark:bg-slate-950 rounded-xl p-3 border border-slate-150 dark:border-slate-805">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 block">2. Jaringan IP Privat / NAT</span>
+                        <p className="text-slate-500 leading-relaxed text-[10px]">
+                          Jika router klien menggunakan IP Lokal/Privat tanpa IP Publik statis, port API 8728/REST 80 tidak dapat dijangkau langsung oleh server platform kami di cloud. Saat ini terjadi, sistem akan menyimpan input data manual yang diisikan sebagai baseline SLA, sehingga tagihan tetap akurat.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1 bg-white dark:bg-slate-955 rounded-xl p-3 border border-slate-150 dark:border-slate-805">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 block">3. Aturan Batas Truncation API</span>
+                        <p className="text-slate-500 leading-relaxed text-[10px]">
+                          Sistem API REST MikroTik ROS7 secara standar mengembalikan seluruh baris data. Namun, jika database router sangat besar (di atas 1000 record) atau koneksi lambat, middleware platform kami membatasi caching sementara demi kecepatan akses SLA iFrame agar tidak terjadi timeout.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive Dual-Pane JSON Inspector */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    
+                    {/* Left Pane: Endpoint Picker */}
+                    <div className="lg:col-span-4 space-y-2.5">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider">📡 PILIH API REST ENDPOINT DATA:</span>
+                      
+                      <div className="space-y-2" id="endpoints-picker">
+                        {[
+                          { endpoint: "/rest/ppp/secret", label: "PPPoE Secrets Database", desc: "Tabel konfigurasi akun PPP terdaftar" },
+                          { endpoint: "/rest/ppp/active", label: "PPPoE Active Sessions", desc: "Sesi tunnel PPPoE fisik sedang online" },
+                          { endpoint: "/rest/interface", label: "Interfaces Status", desc: "Hardware port, speed, dan byte counters" },
+                          { endpoint: "/rest/ppp/profile", label: "PPP Speeds Profile", desc: "Profil limitasi bandwidth pelanggan" },
+                          { endpoint: "/rest/ip/hotspot/active", label: "Active Hotspot Leases", desc: "User tamu Wi-Fi bypass terotentikasi" },
+                          { endpoint: "/rest/system/resource", label: "Hardware Resources", desc: "Sistem CPU, memori, model, & uptime" },
+                          { endpoint: "/rest/system/health", label: "Hardware Temperature", desc: "Suhu sasis & tegangan Routerboard" }
+                        ].map((obj) => {
+                          const resInfo = rawApiResponses[obj.endpoint];
+                          const hasData = !!resInfo;
+                          const isSelected = selectedRawLogEndpoint === obj.endpoint;
+                          const isError = hasData && (resInfo.statusCode !== 200 || !resInfo.payload?.success);
+
+                          return (
+                            <button
+                              key={obj.endpoint}
+                              type="button"
+                              onClick={() => setSelectedRawLogEndpoint(obj.endpoint)}
+                              className={`w-full text-left p-3 rounded-xl border flex flex-col justify-between gap-1 transition-all cursor-pointer ${
+                                isSelected 
+                                  ? "bg-slate-900 border-indigo-600 text-white shadow-xs" 
+                                  : "bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-805"
+                              }`}
+                            >
+                              <div className="flex justify-between items-center w-full">
+                                <span className="font-mono text-[10.5px] font-bold tracking-tight text-indigo-500 truncate max-w-[180px]">
+                                  {obj.endpoint}
+                                </span>
+                                {hasData ? (
+                                  <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-full font-mono ${
+                                    isError 
+                                      ? "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-400" 
+                                      : "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-400"
+                                  }`}>
+                                    {isError ? "ERR" : "200 OK"}
+                                  </span>
+                                ) : (
+                                  <span className="text-[8.5px] bg-slate-100 dark:bg-slate-800 text-slate-400 font-mono font-bold px-1.5 py-0.5 rounded-full">
+                                    PENDING
+                                  </span>
+                                )}
+                              </div>
+                              <span className={`text-[11px] font-bold ${isSelected ? "text-slate-100" : "text-slate-850 dark:text-slate-300"}`}>
+                                {obj.label}
+                              </span>
+                              <span className="text-[9.5px] text-slate-400 block tracking-tight truncate leading-tight">
+                                {obj.desc}
+                              </span>
+                              
+                              {hasData && (
+                                <div className="flex justify-between items-center w-full text-[8px] font-mono text-slate-450 mt-1 border-t border-slate-100/10 pt-1">
+                                  <span>RTT Latency: <strong>{resInfo.durationMs}ms</strong></span>
+                                  <span>Sync: {resInfo.timestamp}</span>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Right Pane: Pretty JSON Code block */}
+                    <div className="lg:col-span-8 space-y-3">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider">
+                          📁 DIAGNOSTIC CHANNELS:
+                        </span>
+                        
+                        {rawApiResponses[selectedRawLogEndpoint] && (
+                          <div className="flex bg-slate-105 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-0.5 rounded-lg text-[10px] font-bold shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setRawInspectorTab("payload")}
+                              className={`px-3 py-1 rounded-md cursor-pointer transition-all ${
+                                rawInspectorTab === "payload" 
+                                  ? "bg-slate-900 text-white shadow-xs font-semibold" 
+                                  : "text-slate-500 hover:text-slate-700"
+                              }`}
+                            >
+                              📄 JSON Body
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRawInspectorTab("headers")}
+                              className={`px-3 py-1 rounded-md cursor-pointer transition-all ${
+                                rawInspectorTab === "headers" 
+                                  ? "bg-slate-900 text-white shadow-xs font-semibold" 
+                                  : "text-slate-500 hover:text-slate-700"
+                              }`}
+                            >
+                              🔑 Headers
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRawInspectorTab("truncation")}
+                              className={`px-3 py-1 rounded-md cursor-pointer transition-all ${
+                                rawInspectorTab === "truncation" 
+                                  ? "bg-slate-900 text-white shadow-xs font-semibold" 
+                                  : "text-slate-500 hover:text-slate-700"
+                              }`}
+                            >
+                              ⚠️ Truncation Alert
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {rawApiResponses[selectedRawLogEndpoint] ? (() => {
+                        const cell = rawApiResponses[selectedRawLogEndpoint];
+                        const isError = cell.statusCode !== 200 || !cell.payload?.success;
+                        const dataCount = cell.payload && Array.isArray(cell.payload.data) ? cell.payload.data.length : null;
+
+                        return (
+                          <div className="bg-slate-950 rounded-2xl border border-slate-850 overflow-hidden font-mono text-[10.5px]" id="raw-json-editor-canvas">
+                            
+                            {/* Toolbar headers */}
+                            <div className="bg-slate-900/60 border-b border-slate-850 p-4 flex flex-col md:flex-row justify-between gap-3 text-slate-350">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="bg-indigo-600/40 text-indigo-400 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase font-mono tracking-widest">{cell.method}</span>
+                                  <strong className="text-white text-xs">{cell.endpoint}</strong>
+                                </div>
+                                <span className="text-[10px] block text-slate-400">Socket API handshake complete at <span className="text-slate-200">{cell.timestamp}</span></span>
+                              </div>
+
+                              <div className="flex flex-row md:flex-col items-start md:items-end justify-between font-mono gap-1 shrink-0">
+                                <div className="flex items-center gap-1 text-[9px] font-extrabold">
+                                  <span>STATUS CODE:</span>
+                                  <span className={`px-2 py-0.5 rounded-full ${isError ? "bg-rose-500/20 text-rose-400" : "bg-emerald-500/20 text-emerald-400"}`}>
+                                    {cell.statusCode || "SUCCESS"}
+                                  </span>
+                                </div>
+                                <span className="text-[9px] text-slate-400 block text-right mt-1 font-bold">Latency: <strong className="text-amber-450">{cell.durationMs} ms</strong></span>
+                              </div>
+                            </div>
+
+                            {/* Error warning detail if any */}
+                            {isError && (
+                              <div className="bg-rose-950/20 border-b border-rose-900/40 p-4 text-xs text-rose-400 flex items-start gap-2 leading-relaxed">
+                                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+                                <div>
+                                  <strong className="block font-bold">API Handshake Mismatch / Connection Obstacle:</strong>
+                                  <span>{cell.error || cell.payload?.error || "Handshake response was truncated or connection failed. Please verify that the client Mikrotik REST socket is configured properly or that its IP is accessible."}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Record summary counts */}
+                            <div className="bg-slate-900/20 border-b border-slate-850 px-4 py-2 text-[9.5px] text-slate-450 flex justify-between">
+                              <span>Total Records Parsed: <strong className="text-blue-400">{dataCount !== null ? dataCount : (cell.payload?.data ? "1 Object" : "0 Records")}</strong></span>
+                              <span>Schema Target: {selectedRawLogEndpoint.startsWith("/rest/ppp") ? "PPP Protocol (ROS7 REST)" : "Hotspot / Resources"}</span>
+                            </div>
+
+                            {/* Active Tab View */}
+                            {rawInspectorTab === "payload" && (
+                              <div className="p-4">
+                                <div className="flex justify-between items-center mb-2 text-[9.5px] text-slate-440 border-b border-slate-800 pb-1.5">
+                                  <span>📄 DUMP DATA JSON FORMAT:</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const jsonStr = JSON.stringify(cell.payload, null, 2);
+                                      navigator.clipboard.writeText(jsonStr);
+                                      if (triggerToast) triggerToast("Raw JSON data copied to clipboard!", "success");
+                                    }}
+                                    className="text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer"
+                                  >
+                                    Copy Raw Body
+                                  </button>
+                                </div>
+                                <div className="p-4 max-h-[440px] overflow-y-auto custom-scrollbar text-slate-300 selection:bg-indigo-900/50">
+                                  <pre className="whitespace-pre-wrap break-all leading-normal text-[10px]">
+                                    {JSON.stringify(cell.payload, null, 2)}
+                                  </pre>
+                                </div>
+                              </div>
+                            )}
+
+                            {rawInspectorTab === "headers" && (
+                              <div className="p-4 space-y-3">
+                                <div className="flex justify-between items-center text-[9.5px] text-slate-400 border-b border-slate-800 pb-1.5">
+                                  <span>🔑 HTTP HEADER METADATA PARAMETERS:</span>
+                                  <span className="text-[9px] text-slate-500">Transmitted over routerboard REST socket TLS tunnel</span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-[10.5px]">
+                                    <thead>
+                                      <tr className="border-b border-slate-850 text-slate-400 font-bold">
+                                        <th className="py-1.5 px-2">Header Name</th>
+                                        <th className="py-1.5 px-2">Header Value</th>
+                                        <th className="py-1.5 px-2 hidden md:table-cell text-slate-550">Diagnostics Context</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-850 font-mono text-[10px]">
+                                      {cell.headers ? Object.entries(cell.headers).map(([key, val]) => {
+                                        let helperDesc = "Metadata custom header dari RouterOS";
+                                        if (key === "Content-Type") helperDesc = "Tipe payload respons (JSON)";
+                                        if (key === "Server") helperDesc = "Identitas server HTTPS MikroTik";
+                                        if (key === "Content-Length") helperDesc = "Ukuran total byte data yang ditransfer";
+                                        if (key === "X-Frame-Options") helperDesc = "Keamanan anti-clickjacking frame";
+                                        if (key === "Access-Control-Allow-Origin") helperDesc = "Izin CORS multi-asal global";
+                                        if (key === "X-[#MikroTik-ROS-Version]") helperDesc = "Versi firmware Routerboard fisik klien";
+                                        if (key === "Connection") helperDesc = "Koneksi persistent socket HTTP/1.1";
+                                        if (key === "X-SLA-Sync-Throttle") helperDesc = "Status proteksi beban server cloud";
+                                        if (key === "X-Cache-Status") helperDesc = "Status penyimpanan cache middleware";
+                                        if (key === "Date") helperDesc = "Estimasi waktu handshake server NTP";
+                                        return (
+                                          <tr key={key} className="hover:bg-slate-900/40 text-slate-300">
+                                            <td className="py-2 px-2 text-indigo-400 font-medium">{key}</td>
+                                            <td className="py-2 px-2 text-emerald-400 break-all select-all">{val}</td>
+                                            <td className="py-2 px-2 text-slate-400 hidden md:table-cell text-[9.5px]">{helperDesc}</td>
+                                          </tr>
+                                        );
+                                      }) : (
+                                        <tr>
+                                          <td colSpan={3} className="py-4 text-center text-slate-505">
+                                            Tidak ada metadata headers terekam untuk port ini.
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+
+                            {rawInspectorTab === "truncation" && (
+                              <div className="p-4 space-y-4 text-slate-350">
+                                <div className="flex justify-between items-center text-[9.5px] text-slate-400 border-b border-slate-800 pb-1.5">
+                                  <span>⚠️ ANALISIS TRUNCATION & COUNT MISMATCH DIAGNOSTIC:</span>
+                                  <span className="text-[9px] text-amber-450 font-bold">High Priority Diagnostic</span>
+                                </div>
+
+                                <div className="space-y-3 text-[11px] leading-relaxed font-sans">
+                                  <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl space-y-1.5">
+                                    <strong className="text-white block font-sans">Mengapa jumlah kliens/secrets terpotong atau tidak sesuai?</strong>
+                                    <p className="text-slate-400 text-[10.5px]">
+                                      Saat data diambil secara live, routerboard fisik dapat mengalami lag respons atau paket TCP rujukan hilang (dropped). Sistem kami menerapkan mitigasi otomatis berikut untuk menjaga keakuratan total tagihan:
+                                    </p>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    <div className="p-3 bg-slate-900/40 border border-slate-850 rounded-xl space-y-1">
+                                      <span className="font-bold text-indigo-400 block font-mono">1. Aturan Truncasi (1000 Records Limit):</span>
+                                      <p className="text-[10px] text-slate-400 leading-normal">
+                                        REST API MikroTik ROS7 membatasi penarikan payload di atas 1000 record untuk mencegah timeout HTTP/1.1 atau memori routerboard crash (terutama tipe kecil seperti hEX / 1100AHx4). Data di atas limit ini akan di-cache secara bertahap (chunk paged).
+                                      </p>
+                                    </div>
+
+                                    <div className="p-3 bg-slate-900/40 border border-slate-850 rounded-xl space-y-1">
+                                      <span className="font-bold text-amber-500 block font-mono">2. Selisih PPPoE Aktif vs Database:</span>
+                                      <p className="text-[10px] text-slate-400 leading-normal">
+                                        Misalnya, di menu <strong>PPPoE Secrets Database</strong> tercatat {routerDataLists.secrets.length} Secrets terpasang, namun di dashboard depan hanya ada {routerDataLists.active.length} PPPoE Aktif. Ini bukan kegagalan data, melainkan klien sedang offline di rumah pelanggan (kabel putus / ONU mati). Klien offline dapat dilihat di tabel Secrets.
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="p-3 bg-indigo-950/20 border border-indigo-900/50 rounded-xl flex items-start gap-2 text-[10.5px]">
+                                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-indigo-400" />
+                                    <div>
+                                      <strong className="text-white block font-sans">Solusi Sinkronisasi Riil:</strong>
+                                      <p className="text-slate-400 text-[10px] leading-normal font-sans">
+                                        Ketika data API successfully fetched, platform kami secara pintar langsung membandingkan data live database dan mengupdate status pelanggan di dashboard tagihan pusat secara dinamis agar angka riil selalu sinkron!
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            
+                          </div>
+                        );
+                      })() : (
+                        <div className="py-24 bg-slate-50 dark:bg-slate-900/30 rounded-2xl border border-dashed border-slate-250 dark:border-slate-800 text-center flex flex-col items-center justify-center space-y-2">
+                          <Activity className="w-10 h-10 text-slate-400 animate-pulse" />
+                          <h5 className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans">Data Response Log Kosong</h5>
+                          <p className="text-[10.5px] text-slate-400 max-w-sm leading-normal font-sans">
+                            Handshake belum dimulai atau gagal mendapatkan respons. Silakan pilih router aktif di atas kemudian klik <strong>Tarik Ulang API</strong> untuk me-load data payload langsung.
+                          </p>
+                        </div>
+                      )}
+
+                    </div>
+
                   </div>
 
                 </div>

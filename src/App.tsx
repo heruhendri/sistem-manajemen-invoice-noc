@@ -27,6 +27,7 @@ import {
   Moon,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Info,
   X,
   Database,
@@ -43,7 +44,7 @@ import { motion, AnimatePresence } from "motion/react";
 
 export default function App() {
   // Default to marketing-ecatalog (E-Catalog)
-  const [activeTab, setActiveTab] = useState<string>(() => {
+  const [activeTab, _setActiveTab] = useState<string>(() => {
     const path = (window.location.pathname + window.location.hash).toLowerCase();
     if (path.includes("admin")) {
       return "dashboard";
@@ -53,6 +54,50 @@ export default function App() {
     }
     return "marketing-ecatalog";
   });
+
+  const setActiveTab = (tabName: string | ((prev: string) => string)) => {
+    _setActiveTab((prevValue) => {
+      const nextValue = typeof tabName === "function" ? tabName(prevValue) : tabName;
+      
+      let targetPath = "/";
+      if (nextValue === "customer-portal") {
+        targetPath = "/pelanggan";
+      } else if (nextValue === "marketing-ecatalog") {
+        targetPath = "/";
+      } else {
+        // Any admin panel tab
+        targetPath = "/admin";
+      }
+
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ tab: nextValue }, "", targetPath);
+      }
+      return nextValue;
+    });
+  };
+
+  // Sync browser back/forward buttons with custom path states
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = (window.location.pathname + window.location.hash).toLowerCase();
+      if (path.includes("admin")) {
+        _setActiveTab((prev) => {
+          // If already in an admin tab, keep it, otherwise default to dashboard
+          if (["marketing-ecatalog", "customer-portal"].includes(prev)) {
+            return "dashboard";
+          }
+          return prev;
+        });
+      } else if (path.includes("pelanggan") || path.includes("customer")) {
+        _setActiveTab("customer-portal");
+      } else {
+        _setActiveTab("marketing-ecatalog");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
   
   const [loading, setLoading] = useState<boolean>(true);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -74,6 +119,23 @@ export default function App() {
   const [adminInputUser, setAdminInputUser] = useState("");
   const [adminInputPass, setAdminInputPass] = useState("");
   const [showAdminPass, setShowAdminPass] = useState(false);
+  const [adminFailedAttempts, setAdminFailedAttempts] = useState(0);
+  const [adminLockoutTime, setAdminLockoutTime] = useState(0);
+
+  // Cooldown countdown timer for Admin Login Barrier
+  useEffect(() => {
+    if (adminLockoutTime <= 0) return;
+    const interval = setInterval(() => {
+      setAdminLockoutTime((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [adminLockoutTime]);
 
   // States
   const [clients, setClients] = useState<Client[]>([]);
@@ -103,6 +165,7 @@ export default function App() {
         if (!parsed.pdfColorSecondary) parsed.pdfColorSecondary = "#475569";
         if (!parsed.pdfCustomNote) parsed.pdfCustomNote = "Pesan ini digenerate secara otomatis oleh Billing NOC System dengan pembukuan real-time terintegrasi.";
         if (!parsed.staticQrisPayload) parsed.staticQrisPayload = "00020101021226380010ID.CO.QRIS.WWW011893600002000010000303035204481155026263045A95";
+        if (parsed.otpAuthenticationEnabled === undefined) parsed.otpAuthenticationEnabled = true;
         return parsed;
       } catch (e) {}
     }
@@ -115,6 +178,7 @@ export default function App() {
       address: "Cyber Building 1st Floor, Kuningan Barat, Jakarta, Indonesia",
       footerText: "NOC Net Nusantara - SLA Monitoring Guarantee 99.9%",
       qrisMerchantName: "NOC NET NUSANTARA CO",
+      otpAuthenticationEnabled: true,
       
       pdfTitle: "INVOICE UTAMA SLA",
       pdfSubTitle: "SLA PROACTIVE MONITORING INFRASTRUCTURE",
@@ -210,7 +274,13 @@ export default function App() {
 
     // Load WhatsApp connection status from the server
     fetch("/api/whatsapp/status")
-      .then(res => res.json())
+      .then(res => {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          return res.json();
+        }
+        throw new Error("unreachable state");
+      })
       .then(data => {
         const isConnected = data.status === "completed";
         setWhatsappConnected(isConnected);
@@ -574,64 +644,100 @@ export default function App() {
                 </div>
 
                 {/* Login Form */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (adminInputUser === adminUsername && adminInputPass === adminPassword) {
-                      setAdminAuthenticated(true);
-                      localStorage.setItem("noc_admin_logged_in", "true");
-                      triggerToast("Autentikasi Sukses! Dekripsi database diizinkan.", "success");
-                    } else {
-                      triggerToast("Username atau Password Salah! Enkripsi ditolak.", "error");
-                    }
-                  }}
-                  className="space-y-4 text-left text-xs"
-                  id="admin-form-login"
-                >
-                  <div className="space-y-1">
-                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">ID Username Admin</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Masukkan username admin"
-                      value={adminInputUser}
-                      onChange={(e) => setAdminInputUser(e.target.value)}
-                      className="w-full text-xs p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
-                      id="admin-login-usr"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">Password Enkripsi</label>
-                    <div className="relative">
-                      <input
-                        type={showAdminPass ? "text" : "password"}
-                        required
-                        placeholder="Masukkan password admin"
-                        value={adminInputPass}
-                        onChange={(e) => setAdminInputPass(e.target.value)}
-                        className="w-full text-xs p-2.5 pr-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
-                        id="admin-login-pass"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowAdminPass(!showAdminPass)}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-450 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer bg-transparent border-0"
-                        id="admin-pass-toggle"
-                      >
-                        {showAdminPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+                {adminLockoutTime > 0 ? (
+                  <div className="p-5 bg-rose-50 dark:bg-rose-950/20 border-2 border-rose-200 dark:border-rose-900 rounded-2xl space-y-3 animate-in fade-in zoom-in duration-300">
+                    <AlertTriangle className="w-8 h-8 text-rose-500 mx-auto animate-bounce" />
+                    <h3 className="text-xs font-extrabold uppercase font-mono tracking-wider text-rose-700 dark:text-rose-400">ADMIN CONSOLE LOCKED OUT</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-semibold">
+                      Sistem mendeteksi aktivitas brute-force berulang (5x percobaan tidak sah). Konsol utama dihentikan sementara demi mempertahankan integritas data SLA.
+                    </p>
+                    <div className="py-2.5 px-4 bg-rose-100 dark:bg-rose-950/40 rounded-xl inline-block">
+                      <span className="text-[15px] font-mono font-black text-rose-650 dark:text-rose-400">
+                        {adminLockoutTime} DETIK COOLDOWN
+                      </span>
                     </div>
+                    <span className="block text-[9px] text-slate-400 font-mono italic">
+                      Security policy: Cooldown bertambah jika terus gagal.
+                    </span>
                   </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-2.5 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-md uppercase tracking-wider font-mono inline-flex items-center justify-center gap-1.5 shadow-sm"
-                    id="btn-admin-submit-auth"
+                ) : (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (adminLockoutTime > 0) return;
+                      
+                      if (adminInputUser === adminUsername && adminInputPass === adminPassword) {
+                        setAdminAuthenticated(true);
+                        setAdminFailedAttempts(0);
+                        localStorage.setItem("noc_admin_logged_in", "true");
+                        triggerToast("Autentikasi Sukses! Dekripsi database diizinkan.", "success");
+                      } else {
+                        const newAtt = adminFailedAttempts + 1;
+                        setAdminFailedAttempts(newAtt);
+                        if (newAtt >= 5) {
+                          setAdminLockoutTime(30);
+                          setAdminFailedAttempts(0);
+                          triggerToast("Terlalu banyak percobaan gagal! Console dikunci selama 30 detik.", "error");
+                        } else {
+                          triggerToast(`Username atau Password Salah! Enkripsi ditolak. Sisa percobaan: ${5 - newAtt}`, "error");
+                        }
+                      }
+                    }}
+                    className="space-y-4 text-left text-xs"
+                    id="admin-form-login"
                   >
-                    <Lock className="w-3.5 h-3.5" /> Autentikasi Enkripsi Console
-                  </button>
-                </form>
+                    {adminFailedAttempts > 0 && (
+                      <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-xl text-amber-800 dark:text-amber-400 font-semibold leading-normal flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                        <span>Sisa toleransi autentikasi: {5 - adminFailedAttempts} kali sebelum login diblokir.</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">ID Username Admin</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Masukkan username admin"
+                        value={adminInputUser}
+                        onChange={(e) => setAdminInputUser(e.target.value)}
+                        className="w-full text-xs p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
+                        id="admin-login-usr"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">Password Enkripsi</label>
+                      <div className="relative">
+                        <input
+                          type={showAdminPass ? "text" : "password"}
+                          required
+                          placeholder="Masukkan password admin"
+                          value={adminInputPass}
+                          onChange={(e) => setAdminInputPass(e.target.value)}
+                          className="w-full text-xs p-2.5 pr-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-800 dark:text-white focus:outline-blue-500 font-mono"
+                          id="admin-login-pass"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminPass(!showAdminPass)}
+                          className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-450 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer bg-transparent border-0"
+                          id="admin-pass-toggle"
+                        >
+                          {showAdminPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-md uppercase tracking-wider font-mono inline-flex items-center justify-center gap-1.5 shadow-sm"
+                      id="btn-admin-submit-auth"
+                    >
+                      <Lock className="w-3.5 h-3.5" /> Autentikasi Enkripsi Console
+                    </button>
+                  </form>
+                )}
 
               </div>
             </div>
@@ -795,6 +901,7 @@ export default function App() {
                     <NetworkMonitoringView 
                       clients={clients}
                       triggerToast={triggerToast}
+                      onUpdateClient={handleUpdateClient}
                     />
                   )}
 

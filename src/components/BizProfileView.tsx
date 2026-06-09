@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { BizProfile, CustomPaymentMethod } from "../types";
 import { 
   Building2, 
@@ -62,6 +62,22 @@ export default function BizProfileView({
   const [newAdminUsername, setNewAdminUsername] = useState(adminUsername);
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [confirmAdminPassword, setConfirmAdminPassword] = useState("");
+  const [currentAdminPasswordConfirm, setCurrentAdminPasswordConfirm] = useState("");
+
+  const passwordStrength = useMemo(() => {
+    if (!newAdminPassword) return { score: 0, label: "Kosong", color: "w-0 bg-transparent", textColor: "text-slate-400" };
+    let score = 0;
+    if (newAdminPassword.length >= 8) score += 2;
+    else if (newAdminPassword.length >= 6) score += 1;
+    
+    if (/[A-Z]/.test(newAdminPassword)) score += 1;
+    if (/[0-9]/.test(newAdminPassword)) score += 1;
+    if (/[^A-Za-z0-9]/.test(newAdminPassword)) score += 1;
+    
+    if (score <= 1) return { score, label: "Sangat Lemah 🔴 (Gunakan gabungan angka/huruf besar)", color: "w-1/3 bg-red-500", textColor: "text-red-500 font-extrabold" };
+    if (score <= 3) return { score, label: "Medium / Sedang 🟡 (Tambahkan simbol jika mau kuat)", color: "w-2/3 bg-amber-500", textColor: "text-amber-500 font-bold" };
+    return { score, label: "Sangat Kuat / Kokoh 🟢 (Enkripsi Maksimal)", color: "w-full bg-emerald-500", textColor: "text-emerald-550 font-black dark:text-emerald-400" };
+  }, [newAdminPassword]);
 
   // Initializing state with defaults if missing
   const [form, setForm] = useState<BizProfile>(() => {
@@ -552,6 +568,52 @@ export default function BizProfileView({
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-lg text-slate-905 dark:text-white font-medium focus:outline-teal-505"
                   />
                 </div>
+
+                {/* OTP Settings Option Toggle */}
+                <div className="pt-2 col-span-1 sm:col-span-2">
+                  <div className="p-4 bg-emerald-500/5 dark:bg-emerald-950/10 rounded-xl border border-emerald-100 dark:border-emerald-900 flex items-center justify-between">
+                    <div className="space-y-0.5 max-w-[80%]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11.5px] font-bold text-slate-800 dark:text-white uppercase font-mono tracking-wider block">
+                          🛡️ Autentikasi Keamanan OTP Pelanggan (2FA)
+                        </span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                          form.otpAuthenticationEnabled !== false 
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400" 
+                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                        }`}>
+                          {form.otpAuthenticationEnabled !== false ? "AKTIF" : "NONAKTIF"}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-normal font-sans">
+                        Bila diaktifkan, setiap mitra/pelanggan wajib memverifikasi kode One-Time Password (OTP) 6-digit via WhatsApp saat masuk ke Portal Tagihan. Bila dinonaktifkan, login menjadi instan tanpa verifikasi kode OTP.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextVal = form.otpAuthenticationEnabled === false ? true : false;
+                        const updatedForm = {
+                          ...form,
+                          otpAuthenticationEnabled: nextVal
+                        };
+                        setForm(updatedForm);
+                        onUpdateProfile(updatedForm);
+                        notify(`Konfigurasi OTP keamanan login berhasil ${nextVal ? "diaktifkan" : "dinonaktifkan"} dan disimpan!`, "success");
+                      }}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        form.otpAuthenticationEnabled !== false ? "bg-emerald-600" : "bg-slate-300 dark:bg-slate-700"
+                      }`}
+                    >
+                      <span className="sr-only">Toggle OTP</span>
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          form.otpAuthenticationEnabled !== false ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -869,6 +931,59 @@ export default function BizProfileView({
                 <strong>Zona Bahaya NOC Nusantara Admin:</strong> Gunakan menu ini untuk mengosongkan / membersihkan seluruh data simulasi dari instansi agar sistem siap beroperasi penuh pada mode produksi riil, atau kelola pencadangan manual data Anda.
               </div>
 
+              <div className="p-4 bg-white dark:bg-[#0d1527] border border-slate-205 dark:border-slate-800 rounded-xl space-y-3">
+                <div className="border-b border-slate-200 dark:border-slate-800 pb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-850 dark:text-white uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                    🛡️ Autentikasi Keamanan login Pelanggan (2FA OTP)
+                  </span>
+                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                    form.otpAuthenticationEnabled !== false 
+                      ? "bg-emerald-100 text-emerald-805 dark:bg-emerald-900/40 dark:text-emerald-450" 
+                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                  }`}>
+                    {form.otpAuthenticationEnabled !== false ? "PORTAL TERPROTEKSI" : "LOGIN INSTAN"}
+                  </span>
+                </div>
+                
+                <p className="text-slate-500 leading-relaxed text-[11.5px] font-sans">
+                  Mitra/pelanggan Anda dapat diverifikasi melalui pengiriman kode One-Time Password (OTP) 6-digit via WhatsApp saat masuk ke Portal Tagihan. Anda dapat menonaktifkan fitur ini untuk mempercepat akses login mitra.
+                </p>
+
+                <div className="p-3 bg-emerald-500/5 dark:bg-emerald-950/20 rounded-xl border border-emerald-100 dark:border-emerald-900 flex items-center justify-between">
+                  <div className="space-y-0.5 max-w-[80%]">
+                    <span className="text-[11.5px] font-bold text-slate-800 dark:text-white">
+                      Aktifkan Proteksi Kode OTP (Sangat Direkomendasikan)
+                    </span>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                      Pelanggan wajib scan/baca OTP dari no WhatsApp yang terintegrasi pada menu integrasi.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextVal = form.otpAuthenticationEnabled === false ? true : false;
+                      const updatedForm = {
+                        ...form,
+                        otpAuthenticationEnabled: nextVal
+                      };
+                      setForm(updatedForm);
+                      onUpdateProfile(updatedForm);
+                      notify(`Konfigurasi OTP keamanan login berhasil ${nextVal ? "diaktifkan" : "dinonaktifkan"} dan disimpan!`, "success");
+                    }}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      form.otpAuthenticationEnabled !== false ? "bg-emerald-600" : "bg-slate-300 dark:bg-slate-700"
+                    }`}
+                  >
+                    <span className="sr-only">Toggle OTP System</span>
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        form.otpAuthenticationEnabled !== false ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
               {/* Card 0: Ubah Password & Kredensial Admin */}
               <div className="p-4 bg-white dark:bg-[#0d1527] border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
                 <div className="border-b border-slate-200 dark:border-slate-800 pb-2 flex items-center justify-between">
@@ -880,48 +995,88 @@ export default function BizProfileView({
                 </div>
                 
                 <p className="text-slate-500 leading-relaxed text-[11px]">
-                  Demi keamanan operasional riil instansi Anda, silakan ubah ID Username default dan Password rahasia administrator secara mandiri di bawah ini.
+                  Demi keamanan berstandar tinggi, Anda wajib memverifikasi password administrator Anda yang saat ini aktif sebelum dapat menyimpan kredensial baru.
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <div className="space-y-1">
-                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">ID Username Baru</label>
+                <div className="space-y-3 pt-2">
+                  {/* Current Active Password Block */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-xl space-y-1.5">
+                    <label className="block text-[10.5px] font-bold text-slate-600 dark:text-slate-400 uppercase font-mono tracking-wide">
+                      Verifikasi Password Saat Ini (Wajib)
+                    </label>
                     <input
-                      type="text"
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
-                      value={newAdminUsername}
-                      onChange={(e) => setNewAdminUsername(e.target.value)}
-                      placeholder="Contoh: admin"
+                      type="password"
+                      className="w-full p-2.5 bg-white dark:bg-[#070b13] border border-slate-200 dark:border-slate-800 rounded-lg text-slate-805 dark:text-white font-mono focus:outline-blue-500 text-xs"
+                      value={currentAdminPasswordConfirm}
+                      onChange={(e) => setCurrentAdminPasswordConfirm(e.target.value)}
+                      placeholder="Masukkan password admin aktif Anda saat ini"
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-[10.5px] font-bold text-slate-405 uppercase font-mono tracking-wide">Password Baru</label>
-                    <input
-                      type="password"
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
-                      value={newAdminPassword}
-                      onChange={(e) => setNewAdminPassword(e.target.value)}
-                      placeholder="Masukkan password baru"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-[10.5px] font-bold text-slate-400 uppercase font-mono tracking-wide">ID Username Baru</label>
+                      <input
+                        type="text"
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
+                        value={newAdminUsername}
+                        onChange={(e) => setNewAdminUsername(e.target.value)}
+                        placeholder="Contoh: admin"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[10.5px] font-bold text-slate-405 uppercase font-mono tracking-wide">Password Baru</label>
+                      <input
+                        type="password"
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                        placeholder="Masukkan password baru"
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="block text-[10.5px] font-bold text-slate-405 uppercase font-mono tracking-wide">Konfirmasi Password Baru</label>
+                      <input
+                        type="password"
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
+                        value={confirmAdminPassword}
+                        onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                        placeholder="Konfirmasi password baru"
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-1 sm:col-span-2">
-                    <label className="block text-[10.5px] font-bold text-slate-405 uppercase font-mono tracking-wide">Konfirmasi Password Baru</label>
-                    <input
-                      type="password"
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-805 rounded-xl text-slate-805 dark:text-white font-mono focus:outline-blue-500"
-                      value={confirmAdminPassword}
-                      onChange={(e) => setConfirmAdminPassword(e.target.value)}
-                      placeholder="Konfirmasi password baru"
-                    />
-                  </div>
+                  {/* Password Strength Meter Representation */}
+                  {newAdminPassword && (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-150 dark:border-slate-800 space-y-1.5 transition-all">
+                      <div className="flex justify-between items-center text-[10px]">
+                        <span className="font-bold text-slate-400 uppercase font-mono">Keamanan Sandi:</span>
+                        <span className={passwordStrength.textColor}>{passwordStrength.label}</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-350 ${passwordStrength.color}`} />
+                      </div>
+                      <p className="text-[9px] text-slate-400 leading-relaxed leading-normal pt-1">
+                        🔒 Kriteria Keamanan Mandiri: Sandi dianjurkan memiliki minimal 8 karakter, huruf besar (A-Z), angka (0-9), serta simbol keamanan (@,#,$, dll.).
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-2 flex justify-end">
                   <button
                     type="button"
                     onClick={() => {
+                      if (!currentAdminPasswordConfirm) {
+                        notify("Harap masukkan password Admin aktif saat ini sebagai verifikasi keamanan!", "error");
+                        return;
+                      }
+                      if (currentAdminPasswordConfirm !== adminPassword) {
+                        notify("Verifikasi Gagal: Password saat ini tidak valid!", "error");
+                        return;
+                      }
                       if (!newAdminUsername.trim()) {
                         notify("Username tidak boleh kosong!", "error");
                         return;
@@ -930,14 +1085,25 @@ export default function BizProfileView({
                         notify("Password baru tidak boleh kosong!", "error");
                         return;
                       }
+                      if (newAdminPassword.length < 8) {
+                        notify("Keadilan Enkripsi: Password baru wajib memiliki panjang minimal 8 karakter demi keamanan instansi!", "error");
+                        return;
+                      }
+                      if (passwordStrength.score <= 1) {
+                        notify("Keamanan password terlalu lemah! Gunakan kombinasi huruf/angka.", "error");
+                        return;
+                      }
                       if (newAdminPassword !== confirmAdminPassword) {
                         notify("Konfirmasi password tidak cocok!", "error");
                         return;
                       }
+
                       if (onUpdateAdminCredentials) {
                         onUpdateAdminCredentials(newAdminUsername.trim(), newAdminPassword);
                         setNewAdminPassword("");
                         setConfirmAdminPassword("");
+                        setCurrentAdminPasswordConfirm("");
+                        notify("Kredensial Admin berhasil diperbarui dengan aman!", "success");
                       } else {
                         // fallback local storage set directly
                         localStorage.setItem("noc_admin_username", newAdminUsername.trim());
@@ -945,6 +1111,7 @@ export default function BizProfileView({
                         notify("Kredensial Admin berhasil disimpan!", "success");
                         setNewAdminPassword("");
                         setConfirmAdminPassword("");
+                        setCurrentAdminPasswordConfirm("");
                       }
                     }}
                     className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
