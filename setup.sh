@@ -53,12 +53,17 @@ read -p "Masukkan IP atau Domain yang akan digunakan untuk mengakses aplikasi (m
 git clone $REPO_URL
 cd $DIR_NAME
 
-# Set default host for Vite/Express if DOMAIN_INPUT is empty
-HOST_TO_USE=${DOMAIN_INPUT:-0.0.0.0}
+# Selalu gunakan 0.0.0.0 untuk binding server agar kompatibel dengan NAT VPS
+HOST_TO_USE="0.0.0.0"
+# Mendapatkan IP lokal jika domain dikosongkan untuk tampilan URL akhir
+DISPLAY_HOST=${DOMAIN_INPUT:-$(hostname -I | awk '{print $1}')}
 
 # Install dependencies
 echo -e "${GREEN}2. Menginstal dependensi (npm install)...${NC}"
 npm install
+
+echo -e "${GREEN}2.5 Membangun aplikasi (build) untuk performa VPS...${NC}"
+npm run build
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}3. Konfigurasi Port Jaringan...${NC}"
@@ -102,18 +107,14 @@ if [ $? -eq 0 ]; then
         # Hapus proses lama jika ada
         pm2 delete noc-billing &> /dev/null
         
-        # Jalankan dengan PM2
-        echo -e "${GREEN}Menjalankan aplikasi dengan PM2 di port $APP_PORT dan host $HOST_TO_USE...${NC}"
-        PORT=$APP_PORT HOST=$HOST_TO_USE pm2 start npm --name "noc-billing" -- run dev
+        # Jalankan dengan PM2 dalam mode produksi (lebih ringan & stabil)
+        echo -e "${GREEN}Menjalankan aplikasi dengan PM2 di port $APP_PORT...${NC}"
+        NODE_ENV=production PORT=$APP_PORT HOST=$HOST_TO_USE pm2 start npm --name "noc-billing" -- run dev
         pm2 save
         
         echo -e "${GREEN}Instalasi selesai!${NC}"
         echo -e "${BLUE}==================================================${NC}"
-        if [[ ! -z "$DOMAIN_INPUT" && "$DOMAIN_INPUT" != "all" ]]; then
-            FINAL_URL="http://$DOMAIN_INPUT:$APP_PORT"
-        else
-            FINAL_URL="http://$HOST_TO_USE:$APP_PORT"
-        fi
+        FINAL_URL="http://$DISPLAY_HOST:$APP_PORT"
         echo -e "Aplikasi berjalan di background dengan PM2."
         echo -e "URL: ${GREEN}$FINAL_URL${NC}"
         echo -e "Gunakan '${YELLOW}pm2 status${NC}' untuk melihat status."
@@ -123,14 +124,10 @@ if [ $? -eq 0 ]; then
     else
         echo -e "${GREEN}Instalasi selesai!${NC}"
         echo -e "${BLUE}==================================================${NC}"
-        if [[ ! -z "$DOMAIN_INPUT" && "$DOMAIN_INPUT" != "all" ]]; then
-            FINAL_URL="http://$DOMAIN_INPUT:$APP_PORT"
-        else
-            FINAL_URL="http://$HOST_TO_USE:$APP_PORT"
-        fi
+        FINAL_URL="http://$DISPLAY_HOST:$APP_PORT"
         echo -e "Untuk menjalankan aplikasi secara manual:"
         echo -e "${GREEN}cd $DIR_NAME${NC}"
-        echo -e "${GREEN}npm run dev -- --port $APP_PORT --host${NC}"
+        echo -e "${GREEN}NODE_ENV=production PORT=$APP_PORT HOST=$HOST_TO_USE npm run dev${NC}"
         echo -e "Akses di: ${GREEN}$FINAL_URL${NC}"
         echo -e "${BLUE}==================================================${NC}"
     fi
