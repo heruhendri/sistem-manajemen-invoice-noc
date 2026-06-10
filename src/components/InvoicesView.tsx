@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Client, Invoice, NotificationTemplate, BookkeepingRecord, BizProfile } from "../types";
 import { formatIDR, getIndonesianMonthName, exportInvoicePDF } from "../utils/exportFiles";
+import { buildQrisPayload, getQrImageUrl } from "../utils/qris";
 import { 
   FilePlus, 
   Send, 
@@ -939,97 +940,82 @@ export default function InvoicesView({
       )}
 
       {/* SMART CHKLST / PORTAL SIMULATOR FOR PAYMENT INVOICES */}
-      {activePaymentPortal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150" id="portal-checkout">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden" id="p-core-dialog">
-            
-            {/* Header branding */}
-            <div className="p-5 bg-gradient-to-r from-blue-700 to-blue-900 text-white flex justify-between items-center" id="p-hdr">
-              <div>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-blue-200">PORTAL PEMBAYARAN DIGITAL CLIENT</span>
-                <h3 className="text-sm font-bold tracking-tight mt-0.5">{activePaymentPortal.client.company}</h3>
-              </div>
-              <button 
-                onClick={() => setActivePaymentPortal(null)}
-                className="text-slate-200 hover:text-white font-bold text-xs bg-blue-800/50 p-1 px-2.5 rounded cursor-pointer"
-              >
-                Tutup x
-              </button>
-            </div>
-
-            {/* Main Checkout details */}
-            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto" id="p-content">
-              {/* Product Info summary */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex justify-between items-center text-xs">
+      {activePaymentPortal && (() => {
+        const dQrisPayload = buildQrisPayload(
+          activePaymentPortal.invoice.id,
+          activePaymentPortal.invoice.amount * 1.11, // PPN 11%
+          bizProfile?.qrisMerchantName || bizProfile?.companyName || "NOC NUSANTARA CO"
+        );
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150" id="portal-checkout">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden" id="p-core-dialog">
+              
+              {/* Header branding */}
+              <div className="p-5 bg-gradient-to-r from-blue-700 to-blue-900 text-white flex justify-between items-center" id="p-hdr">
                 <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide block">No Invoice</span>
-                  <span className="font-bold text-slate-900 font-mono text-sm">{activePaymentPortal.invoice.id}</span>
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-blue-200">PORTAL PEMBAYARAN DIGITAL CLIENT</span>
+                  <h3 className="text-sm font-bold tracking-tight mt-0.5">{activePaymentPortal.client.company}</h3>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide block">Total Pembayaran (PPN 11%)</span>
-                  <span className="font-extrabold text-blue-600 font-mono text-sm">
-                    {formatIDR(activePaymentPortal.invoice.amount * 1.11)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Method 1: QRIS statis */}
-              <div className="border border-slate-200 p-4 rounded-xl space-y-3 relative overflow-hidden bg-white hover:border-blue-500 transition-colors" id="checkout-qris">
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1 bg-blue-50 text-blue-600 rounded-md font-bold text-[10px]">PILIHAN 1</span>
-                    <h4 className="text-xs font-bold text-slate-800">QRIS Statis Auto-Check (Rekomendasi)</h4>
-                  </div>
-                  {/* Mock QRIS logo */}
-                  <span className="text-[11px] font-extrabold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-widest font-sans">QRIS</span>
-                </div>
-
-                <p className="text-[11px] text-slate-400">Scan QRIS merchant ini di e-wallet (Gopay, OVO, Dana, LinkAja) atau m-Banking Anda. Sistem SLA NOC mendeteksi pelunasan instan secara real-time.</p>
-
-                {/* Simulated QR block layout */}
-                <div className="flex flex-col items-center justify-center p-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg">
-                  {/* Generated QR Box */}
-                  <div className="w-36 h-36 bg-white p-2 border border-slate-200 rounded-md flex items-center justify-center relative shadow-sm">
-                    {/* Simulated SVG QRIS Pattern */}
-                    <svg width="100%" height="100%" viewBox="0 0 100 100" className="opacity-90">
-                      <rect x="0" y="0" width="100" height="100" fill="#ffffff" />
-                      {/* Anchor square corners */}
-                      <rect x="5" y="5" width="20" height="20" fill="#000" />
-                      <rect x="8" y="8" width="14" height="14" fill="#fff" />
-                      <rect x="11" y="11" width="8" height="8" fill="#000" />
-
-                      <rect x="75" y="5" width="20" height="20" fill="#000" />
-                      <rect x="78" y="8" width="14" height="14" fill="#fff" />
-                      <rect x="81" y="81" width="8" height="8" fill="#000" />
-
-                      <rect x="5" y="75" width="20" height="20" fill="#000" />
-                      <rect x="8" y="78" width="14" height="14" fill="#fff" />
-                      <rect x="11" y="81" width="8" height="8" fill="#000" />
-
-                      {/* Random barcodes/blocks simulation */}
-                      <rect x="35" y="15" width="25" height="10" fill="#000" />
-                      <rect x="40" y="30" width="15" height="15" fill="#000" />
-                      <rect x="15" y="40" width="10" height="25" fill="#000" />
-                      <rect x="70" y="30" width="25" height="20" fill="#000" />
-                      <rect x="40" y="75" width="25" height="20" fill="#000" />
-                      <rect x="70" y="60" width="12" height="12" fill="#000" />
-                      
-                      {/* Tiny cyan center label */}
-                      <rect x="42" y="42" width="16" height="16" fill="#2563eb" rx="2" />
-                      <text x="50" y="52" fill="#fff" fontSize="6" textAnchor="middle" fontWeight="bold">NOC</text>
-                    </svg>
-                  </div>
-                  <span className="text-[9px] text-slate-400 font-mono mt-1.5 uppercase">UNIK: NM-{activePaymentPortal.invoice.id}</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleSimulatePaymentSuccess("QRIS")}
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-xs"
+                <button 
+                  onClick={() => setActivePaymentPortal(null)}
+                  className="text-slate-200 hover:text-white font-bold text-xs bg-blue-800/50 p-1 px-2.5 rounded cursor-pointer"
                 >
-                  [Simulasi] Selesaikan Scan QRIS & Bayar
+                  Tutup x
                 </button>
               </div>
+
+              {/* Main Checkout details */}
+              <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto" id="p-content">
+                {/* Product Info summary */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex justify-between items-center text-xs">
+                  <div>
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide block">No Invoice</span>
+                    <span className="font-bold text-slate-900 font-mono text-sm">{activePaymentPortal.invoice.id}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide block">Total Pembayaran (PPN 11%)</span>
+                    <span className="font-extrabold text-blue-600 font-mono text-sm">
+                      {formatIDR(activePaymentPortal.invoice.amount * 1.11)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Method 1: QRIS statis */}
+                <div className="border border-slate-200 p-4 rounded-xl space-y-3 relative overflow-hidden bg-white hover:border-blue-500 transition-colors" id="checkout-qris">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1 bg-blue-50 text-blue-600 rounded-md font-bold text-[10px]">PILIHAN 1</span>
+                      <h4 className="text-xs font-bold text-slate-800">QRIS Dinamis Auto-Check (Rekomendasi)</h4>
+                    </div>
+                    {/* Mock QRIS logo */}
+                    <span className="text-[11px] font-extrabold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-widest font-sans">QRIS</span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-400">Scan QRIS merchant ini di e-wallet (Gopay, OVO, Dana, LinkAja) atau m-Banking Anda. Sistem SLA NOC mendeteksi pelunasan instan secara real-time.</p>
+
+                  {/* Simulated QR block layout */}
+                  <div className="flex flex-col items-center justify-center p-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg">
+                    {/* Generated QR Box */}
+                    <div className="w-36 h-36 bg-white p-2 border border-slate-200 rounded-md flex items-center justify-center relative shadow-sm overflow-hidden">
+                      <img
+                        referrerPolicy="no-referrer"
+                        src={getQrImageUrl(dQrisPayload)}
+                        className="w-full h-full object-contain"
+                        alt="Dynamic QRIS Code"
+                      />
+                      <div className="absolute left-0 right-0 h-0.5 bg-emerald-500 top-1/2 -translate-y-1/2 shadow-lg animate-bounce"></div>
+                    </div>
+                    <span className="text-[9px] text-slate-400 font-mono mt-1.5 uppercase select-all break-all text-center max-w-xs">{dQrisPayload}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSimulatePaymentSuccess("QRIS")}
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-xs"
+                  >
+                    [Simulasi] Selesaikan Scan QRIS & Bayar
+                  </button>
+                </div>
 
               {/* Method 2: Virtual account bank */}
               <div className="border border-slate-200 p-4 rounded-xl space-y-3 bg-white hover:border-blue-500 transition-colors" id="checkout-bank">
@@ -1091,7 +1077,8 @@ export default function InvoicesView({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* BULK GENERATION & ADMIN NOTIFICATION MODAL */}
       {isBulkOpen && (

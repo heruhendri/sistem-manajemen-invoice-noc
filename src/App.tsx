@@ -38,7 +38,9 @@ import {
   EyeOff,
   Globe,
   ShoppingBag,
-  Home
+  Home,
+  Menu,
+  ChevronDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -100,6 +102,7 @@ export default function App() {
   }, []);
   
   const [loading, setLoading] = useState<boolean>(true);
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return localStorage.getItem("noc_billing_dark_mode") === "true";
   });
@@ -496,55 +499,95 @@ export default function App() {
             </div>
           </div>
 
-          {/* NEW: Clean, Integrated Navigation Menu */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#070b13] border border-slate-200 dark:border-slate-800/80 p-0.5 rounded-xl text-xs font-bold uppercase tracking-wider" id="header-navigation-tabs">
-            <button
-              onClick={() => {
-                setActiveTab("marketing-ecatalog");
-                triggerToast("Menuju Katalog Pelayanan Utama Usaha", "info");
-              }}
-              className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                activeTab === "marketing-ecatalog"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-slate-550 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
-              }`}
-              id="header-nav-btn-home"
-            >
-              🏠 <span className="hidden sm:inline">Katalog</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("customer-portal");
-                triggerToast("Menuju Portal Pelayanan Pelanggan", "info");
-              }}
-              className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                activeTab === "customer-portal"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-slate-550 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
-              }`}
-              id="header-nav-btn-cust"
-            >
-              👤 <span className="hidden sm:inline">Portal Pelanggan</span>
-            </button>
-            <button
-              onClick={() => {
-                const targetTab = ["marketing-ecatalog", "customer-portal"].includes(activeTab) ? "dashboard" : activeTab;
-                setActiveTab(targetTab);
-                triggerToast("Menuju Console Enkripsi Admin NOC", "info");
-              }}
-              className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                !["marketing-ecatalog", "customer-portal"].includes(activeTab)
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-slate-550 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
-              }`}
-              id="header-nav-btn-admin"
-            >
-              🔐 <span className="hidden sm:inline">Secure Admin</span>
-            </button>
-          </div>
-
-          {/* Connected health monitor badge label */}
+          {/* Connected health monitor badge label with the slightly hidden "Draft Menu Cantik" dropdown */}
           <div className="flex items-center gap-2 shrink-0" id="telemetry-badge-area">
+            {/* Draft Menu Cantik (Slightly hidden dropdown in top-right) */}
+            <div className="relative">
+              <button
+                onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
+                className="p-1.5 px-3 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-850 rounded-xl cursor-pointer transition-all duration-150 flex items-center justify-center gap-1.5 focus:outline-none bg-white dark:bg-slate-900 text-slate-750 dark:text-slate-350 shadow-xs"
+                id="draft-canik-menu-trigger"
+                title="Akses Portal Layanan & Admin"
+              >
+                <Menu className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span className="text-[10px] font-extrabold uppercase tracking-wider hidden sm:inline-block">
+                  Akses Gateway
+                </span>
+                <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-100 ${isHeaderMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {isHeaderMenuOpen && (
+                <>
+                  {/* Backdrop list closer */}
+                  <div 
+                    className="fixed inset-0 z-40 cursor-default" 
+                    onClick={() => setIsHeaderMenuOpen(false)} 
+                  />
+                  <div 
+                    className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150"
+                    id="draft-canik-menu-dropdown"
+                  >
+                    <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800/80 mb-1">
+                      <span className="text-[9px] font-extrabold uppercase tracking-widest text-slate-400 dark:text-slate-500 block leading-tight">
+                        Navigasi Portal
+                      </span>
+                    </div>
+                    
+                    <button
+                      onClick={() => {
+                        setActiveTab("marketing-ecatalog");
+                        setIsHeaderMenuOpen(false);
+                        triggerToast("Menuju Katalog Pelayanan Utama Usaha", "info");
+                      }}
+                      className={`w-full px-3.5 py-2.5 text-left text-[11px] font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                        activeTab === "marketing-ecatalog"
+                          ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold"
+                          : "text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <span>🏠</span>
+                      <span>Katalog Layanan</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setActiveTab("customer-portal");
+                        setIsHeaderMenuOpen(false);
+                        triggerToast("Menuju Portal Pelayanan Pelanggan", "info");
+                      }}
+                      className={`w-full px-3.5 py-2.5 text-left text-[11px] font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                        activeTab === "customer-portal"
+                          ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold"
+                          : "text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <span>👤</span>
+                      <span>Portal Pelanggan</span>
+                    </button>
+                    
+                    <div className="border-t border-slate-105 dark:border-slate-800/80 my-1"></div>
+                    
+                    <button
+                      onClick={() => {
+                        const targetTab = ["marketing-ecatalog", "customer-portal"].includes(activeTab) ? "dashboard" : activeTab;
+                        setActiveTab(targetTab);
+                        setIsHeaderMenuOpen(false);
+                        triggerToast("Menuju Console Enkripsi Admin NOC", "info");
+                      }}
+                      className={`w-full px-3.5 py-2.5 text-left text-[11px] font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                        !["marketing-ecatalog", "customer-portal"].includes(activeTab)
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-extrabold"
+                          : "text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <span>🔐</span>
+                      <span>Secure Admin NOC</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             {/* Theme Toggle Button */}
             <button
               onClick={() => setDarkMode(!darkMode)}

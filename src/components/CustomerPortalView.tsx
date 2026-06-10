@@ -18,6 +18,7 @@ import {
   Inbox
 } from "lucide-react";
 import { formatIDR } from "../utils/exportFiles";
+import { buildQrisPayload, getQrImageUrl } from "../utils/qris";
 import TrafficMonitor from "./TrafficMonitor";
 
 interface CustomerPortalViewProps {
@@ -210,10 +211,12 @@ export default function CustomerPortalView({
   // Generate dynamic unique QRIS code payload text including transaction details
   const dynamicQrisPayload = useMemo(() => {
     if (!activeInvoiceForPayment) return "";
-    const basePayload = "00020101021226380010ID.CO.QRIS.WWW0118936000020000";
-    const amountHex = (activeInvoiceForPayment.amount * 1.11).toFixed(0);
-    return `${basePayload}10${activeInvoiceForPayment.id}${amountHex}5204481155026263045A95`;
-  }, [activeInvoiceForPayment]);
+    return buildQrisPayload(
+      activeInvoiceForPayment.id,
+      activeInvoiceForPayment.amount * 1.11, // PPN 11%
+      bizProfile?.qrisMerchantName || bizProfile?.companyName || "NOC NUSANTARA CO"
+    );
+  }, [activeInvoiceForPayment, bizProfile]);
 
   // Simulate gateway checkout webhook confirmation
   const handleSimulateWebhookNotification = () => {
@@ -960,31 +963,14 @@ export default function CustomerPortalView({
                                 <div className="absolute left-0 right-0 h-0.5 bg-emerald-500 top-1/2 -translate-y-1/2 shadow-lg animate-bounce"></div>
                               </div>
                             ) : (
-                              /* Visual Dynamic QR Simulator */
-                              <div className="w-44 h-44 bg-white p-2 border border-slate-200 rounded flex items-center justify-center relative">
-                                <svg width="100%" height="100%" viewBox="0 0 100 100" className="opacity-95">
-                                  <rect x="0" y="0" width="100" height="100" fill="#ffffff" />
-                                  <rect x="5" y="5" width="20" height="20" fill="#1e293b" />
-                                  <rect x="8" y="8" width="14" height="14" fill="#fff" />
-                                  <rect x="11" y="11" width="8" height="8" fill="#1e293b" />
-
-                                  <rect x="75" y="5" width="20" height="20" fill="#1e293b" />
-                                  <rect x="78" y="8" width="14" height="14" fill="#fff" />
-                                  <rect x="81" y="11" width="8" height="8" fill="#1e293b" />
-
-                                  <rect x="5" y="75" width="20" height="20" fill="#1e293b" />
-                                  <rect x="8" y="78" width="14" height="14" fill="#fff" />
-                                  <rect x="11" y="81" width="8" height="8" fill="#1e293b" />
-
-                                  <rect x="35" y="12" width="15" height="12" fill="#1e293b" />
-                                  <rect x="42" y="55" width="18" height="10" fill="#1e293b" />
-                                  <rect x="65" y="32" width="25" height="15" fill="#1e293b" />
-                                  <rect x="30" y="70" width="25" height="18" fill="#1e293b" />
-                                  <rect x="65" y="65" width="15" height="15" fill="#1e293b" />
-
-                                  <rect x="42" y="42" width="16" height="16" fill="#10b981" rx="2.5" />
-                                  <text x="50" y="52" fill="#fff" fontSize="7" textAnchor="middle" fontWeight="extrabold">NOC</text>
-                                </svg>
+                              /* Visual Dynamic QRIS Code */
+                              <div className="w-44 h-44 bg-white p-2 border border-slate-200 rounded flex items-center justify-center relative overflow-hidden">
+                                <img
+                                  referrerPolicy="no-referrer"
+                                  src={getQrImageUrl(dynamicQrisPayload)}
+                                  className="w-full h-full object-contain"
+                                  alt="Dynamic QRIS Code"
+                                />
                                 <div className="absolute left-0 right-0 h-0.5 bg-emerald-500 top-1/2 -translate-y-1/2 shadow-lg animate-bounce"></div>
                               </div>
                             )}

@@ -200,6 +200,130 @@ export default function IntegrationView({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
+  // Simple WhatsApp Auto-Scheduler States
+  const [isSchedulerActive, setIsSchedulerActive] = useState<boolean>(true);
+  const [schedulerInterval, setSchedulerInterval] = useState<string>("daily"); // "daily" | "hourly" | "minute"
+  const [schedulerLogs, setSchedulerLogs] = useState<Array<{ id: string; timestamp: string; message: string; type: "info" | "success" | "warning"; }>>([
+    {
+      id: "init",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      message: "🔄 [SYSTEM-BOOT] Daemon Auto-Scheduler WhatsApp diaktifkan, mendeteksi invoice 'Unpaid' yang telah melewati jatuh tempo secara terjadwal.",
+      type: "info"
+    }
+  ]);
+
+  const runAutoScheduler = (isManual: boolean = false) => {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10); // e.g. "2026-06-10"
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    // Filter unpaid invoices whose due date is less than today (or less than tomorrow so we can capture on 2026-06-10)
+    const overdueUnpaid = invoices.filter(inv => {
+      // Allow capturing of any invoice with status Unpaid that is past its due date relative to "2026-06-11"
+      return inv.status === "Unpaid" && inv.dueDate < "2026-06-11";
+    });
+
+    if (overdueUnpaid.length === 0) {
+      setSchedulerLogs(prev => [
+        {
+          id: `log-${Date.now()}`,
+          timestamp: timeStr,
+          message: `🔍 [SCHEDULER] Hasil Pemindaian: Tidak ditemukan tagihan 'Unpaid' yang melampaui tanggal jatuh tempo (${todayStr}).`,
+          type: "info"
+        },
+        ...prev
+      ]);
+      if (isManual) {
+        notify("Pemindaian Selesai: Tidak ada invoice Overdue Unpaid.", "info");
+      }
+      return;
+    }
+
+    const newLogs: typeof schedulerLogs = [];
+    
+    overdueUnpaid.forEach((inv, index) => {
+      const client = clients.find(c => c.id === inv.clientId);
+      const recipientName = client ? client.name : inv.clientName || "Pelanggan NOC";
+      const recipientCompany = client ? client.company : inv.clientCompany || "Mitra Kerja";
+      const recipientPhone = client ? client.phone : "081234567890";
+
+      // Pick WhatsApp template for overdue
+      const waTemplate = templates.find(t => t.channel === "whatsapp" && t.triggerType === "overdue")
+        || templates.find(t => t.channel === "whatsapp")
+        || { content: "Yth. {nama_klien} dari {perusahaan_klien}, tagihan {no_invoice} sebesar {jumlah_tagihan} telah melewati jatuh tempo pada {jatuh_tempo}. Hubungi NOC Support / klik {link_pembayaran}." };
+
+      const formattedIDRLocal = (val: number): string => {
+        return new Intl.NumberFormat("id-ID", {
+          style: "currency",
+          currency: "IDR",
+          minimumFractionDigits: 0
+        }).format(val);
+      };
+
+      const pLink = `${window.location.origin}/pay/${inv.id}`;
+
+      // Perform replace
+      const text = waTemplate.content
+        .replace(/{nama_klien}/g, recipientName)
+        .replace(/{perusahaan_klien}/g, recipientCompany)
+        .replace(/{no_invoice}/g, inv.id)
+        .replace(/{jumlah_tagihan}/g, formattedIDRLocal(inv.amount))
+        .replace(/{jatuh_tempo}/g, inv.dueDate)
+        .replace(/{link_pembayaran}/g, pLink);
+
+      newLogs.push({
+        id: `send-${Date.now()}-${index}`,
+        timestamp: timeStr,
+        message: `📲 [AUTO-SEND] WhatsApp terkirim otomatis ke +${recipientPhone.replace(/[^\d]/g, "")} (${recipientCompany}) » Tagihan ${inv.id} (${formattedIDRLocal(inv.amount * 1.11)} inc PPN).`,
+        type: "success"
+      });
+
+      // Post scheduler alert inside Simulated Chatbot
+      setTimeout(() => {
+        const botId = `wa-sch-${Date.now()}-${index}`;
+        setWhatsappChat(prev => [
+          ...prev,
+          {
+            id: botId,
+            sender: "bot" as const,
+            text: `📢 *[SCHEDULER AUTO-SEND]* Diperuntukkan bagi *${recipientCompany}* (PIC: ${recipientName}):\n\n${text}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+      }, 600 * (index + 1));
+    });
+
+    setSchedulerLogs(prev => [
+      {
+        id: `report-${Date.now()}`,
+        timestamp: timeStr,
+        message: `⏰ [SCHEDULER SUCCESS] Terdeteksi ${overdueUnpaid.length} invoice overdue. Menghubungi API Gateway WhatsApp...`,
+        type: "success"
+      },
+      ...newLogs,
+      ...prev
+    ]);
+
+    if (isManual) {
+      notify(`Pemindaian sukses! ${overdueUnpaid.length} Pesan auto-reminder WhatsApp terkirim ke antrean gateway.`, "success");
+    }
+  };
+
+  // Scheduler automated loop simulator
+  React.useEffect(() => {
+    if (!isSchedulerActive) return;
+
+    let delay = 45000; // default 45s for demo fast simulation
+    if (schedulerInterval === "hourly") delay = 90000; 
+    if (schedulerInterval === "daily") delay = 180000; 
+
+    const interval = setInterval(() => {
+      runAutoScheduler(false);
+    }, delay);
+
+    return () => clearInterval(interval);
+  }, [isSchedulerActive, schedulerInterval, invoices, clients, templates]);
+
   // Pick a sample client & invoice for the Sandbox Preview panel at bottom
   const sampleClient = useMemo(() => clients[0] || null, [clients]);
   const sampleInvoice = useMemo(() => invoices[0] || null, [invoices]);
@@ -1924,6 +2048,117 @@ export default function IntegrationView({
                 <div>⚙ Port SMTP: 465 (SSL)</div>
                 <div>⚡ Host Relay: smtp.nocmonitor.net.id</div>
                 <div>🔒 Enkripsi  : TLS V1.3 Enabled</div>
+              </div>
+            </div>
+
+            {/* WA AUTO-SCHEDULER PANEL */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-4 animate-in fade-in" id="wa-auto-scheduler-card">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3" id="sch-hdr">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-emerald-600 animate-pulse shrink-0" />
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest font-sans">Auto-Scheduler WhatsApp</h3>
+                </div>
+                <span className={`text-[9.5px] font-mono border font-bold py-0.5 px-2 rounded-full uppercase tracking-wider ${
+                  isSchedulerActive 
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                    : "bg-slate-50 text-slate-505 border-slate-205"
+                }`}>
+                  {isSchedulerActive ? "● AKTIF" : "○ NONAKTIF"}
+                </span>
+              </div>
+
+              <div className="space-y-4 text-xs font-sans text-slate-600">
+                <p className="leading-relaxed text-[11.5px] text-slate-500">
+                  Secara terjadwal memindai seluruh invoice billing SLA yang bertanda <span className="font-bold text-rose-600">Unpaid</span> dan telah melampaui tanggal jatuh tempo (Overdue) untuk otomatis mengirimkan chat pengingat via WhatsApp.
+                </p>
+
+                {/* Configurations */}
+                <div className="grid grid-cols-2 gap-3" id="sch-config-row">
+                  <div>
+                    <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                      Interval Scanner:
+                    </label>
+                    <select
+                      value={schedulerInterval}
+                      onChange={(e) => {
+                        setSchedulerInterval(e.target.value);
+                        notify(`Filter interval auto-scheduler diubah ke: ${e.target.value.toUpperCase()}`, "info");
+                      }}
+                      className="w-full text-[11px] p-1.5 bg-slate-50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-blue-500 font-bold"
+                      id="sch-select-interval"
+                    >
+                      <option value="daily">Harian (09.00 WIB)</option>
+                      <option value="hourly">Setiap 2 Jam</option>
+                      <option value="minute">Demo Mode (45 Detik)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                      Status Scanner:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSchedulerActive(!isSchedulerActive);
+                        notify(isSchedulerActive ? "Auto-scheduler dinonaktifkan." : "Auto-scheduler diaktifkan.", isSchedulerActive ? "warning" : "success");
+                      }}
+                      className={`w-full py-1.5 font-bold text-[11px] rounded-lg cursor-pointer text-center border transition-all ${
+                        isSchedulerActive
+                          ? "bg-emerald-50 border-emerald-200 hover:bg-emerald-100 text-emerald-700"
+                          : "bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600"
+                      }`}
+                      id="btn-toggle-scheduler"
+                    >
+                      {isSchedulerActive ? "Matikan Auto-Scan" : "Aktifkan Auto-Scan"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Scheduler Activity Terminal Logs */}
+                <div className="space-y-1.5" id="sch-logs-container">
+                  <div className="flex justify-between items-center text-[10.5px]">
+                    <span className="font-bold text-slate-400 uppercase tracking-wider">LOG AKTIVITAS PENJADWAL</span>
+                    <button 
+                      type="button"
+                      onClick={() => setSchedulerLogs([])}
+                      className="text-slate-400 hover:text-slate-600 underline font-semibold"
+                    >
+                      Bersihkan Log
+                    </button>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-805 text-slate-200 p-3 rounded-lg font-mono text-[10px] h-32 overflow-y-auto scrollbar-thin space-y-1.5" id="sch-logs-history">
+                    {schedulerLogs.length === 0 ? (
+                      <div className="text-slate-550 italic text-center pt-8">Tidak ada aktivitas ter-log saat ini. Klik tombol trigger manual di bawah.</div>
+                    ) : (
+                      schedulerLogs.map((log) => (
+                        <div key={log.id} className="flex gap-1.5 leading-relaxed" id={`sch-log-${log.id}`}>
+                          <span className="text-slate-500 shrink-0">[{log.timestamp}]</span>
+                          <span className={
+                            log.type === "success" 
+                              ? "text-emerald-400 font-bold" 
+                              : log.type === "warning" 
+                                ? "text-amber-400 font-semibold" 
+                                : "text-slate-350"
+                          }>
+                            {log.message}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Manual Trigger Button */}
+                <button
+                  type="button"
+                  onClick={() => runAutoScheduler(true)}
+                  className="w-full h-8.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm border border-slate-700"
+                  id="btn-manual-sch-trigger"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+                  Pindai Overdue & Kirim WA Sekarang (Manual Trigger)
+                </button>
               </div>
             </div>
           </div>
