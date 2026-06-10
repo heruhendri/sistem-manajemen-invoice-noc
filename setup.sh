@@ -53,6 +53,9 @@ read -p "Masukkan IP atau Domain yang akan digunakan untuk mengakses aplikasi (m
 git clone $REPO_URL
 cd $DIR_NAME
 
+# Set default host for Vite/Express if DOMAIN_INPUT is empty
+HOST_TO_USE=${DOMAIN_INPUT:-0.0.0.0}
+
 # Install dependencies
 echo -e "${GREEN}2. Menginstal dependensi (npm install)...${NC}"
 npm install
@@ -100,8 +103,8 @@ if [ $? -eq 0 ]; then
         pm2 delete noc-billing &> /dev/null
         
         # Jalankan dengan PM2
-        echo -e "${GREEN}Menjalankan aplikasi dengan PM2...${NC}"
-        pm2 start npm --name "noc-billing" -- run dev -- --port $APP_PORT --host
+        echo -e "${GREEN}Menjalankan aplikasi dengan PM2 di port $APP_PORT dan host $HOST_TO_USE...${NC}"
+        PORT=$APP_PORT HOST=$HOST_TO_USE pm2 start npm --name "noc-billing" -- run dev
         pm2 save
         
         echo -e "${GREEN}Instalasi selesai!${NC}"
@@ -109,7 +112,7 @@ if [ $? -eq 0 ]; then
         if [[ ! -z "$DOMAIN_INPUT" && "$DOMAIN_INPUT" != "all" ]]; then
             FINAL_URL="http://$DOMAIN_INPUT:$APP_PORT"
         else
-            FINAL_URL="http://localhost:$APP_PORT"
+            FINAL_URL="http://$HOST_TO_USE:$APP_PORT"
         fi
         echo -e "Aplikasi berjalan di background dengan PM2."
         echo -e "URL: ${GREEN}$FINAL_URL${NC}"
@@ -123,7 +126,7 @@ if [ $? -eq 0 ]; then
         if [[ ! -z "$DOMAIN_INPUT" && "$DOMAIN_INPUT" != "all" ]]; then
             FINAL_URL="http://$DOMAIN_INPUT:$APP_PORT"
         else
-            FINAL_URL="http://localhost:$APP_PORT"
+            FINAL_URL="http://$HOST_TO_USE:$APP_PORT"
         fi
         echo -e "Untuk menjalankan aplikasi secara manual:"
         echo -e "${GREEN}cd $DIR_NAME${NC}"

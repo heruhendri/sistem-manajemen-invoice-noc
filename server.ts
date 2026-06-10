@@ -23,7 +23,9 @@ process.on("unhandledRejection", (reason, promise) => {
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const DB_PATH = path.join(process.cwd(), "database.json");
-const PORT = 3000;
+// Read port and host from environment variables, with fallbacks
+const APP_SERVER_PORT = parseInt(process.env.PORT || "3000", 10);
+const APP_SERVER_HOST = process.env.HOST || "0.0.0.0"; // Default to 0.0.0.0 for external access
 
 // Retrieve database baseline
 function getDatabase() {
@@ -561,20 +563,26 @@ async function startServer() {
   // Serve static assets and bundle SPA output in production environment
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        host: APP_SERVER_HOST, // Use the host from environment variable
+        port: APP_SERVER_PORT, // Use the port from environment variable
+        strictPort: true, // Ensure Vite uses this exact port
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    // In production, serve index.html for all non-API requests
+    app.get("*", (req, res) => { 
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`NOC Nusantara full-stack engine running on http://localhost:${PORT}`);
+  app.listen(APP_SERVER_PORT, APP_SERVER_HOST, () => {
+    console.log(`NOC Nusantara full-stack engine running on http://${APP_SERVER_HOST}:${APP_SERVER_PORT}`);
   });
 }
 
